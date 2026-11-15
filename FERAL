@@ -1,4 +1,4 @@
--- THE GOAT FERAL V8.9.16 - AUTO QUEST DISTANCIA + SOBREVIVENCIA V8.4
+-- THE GOAT FERAL V8.9.17 - AUTO QUEST DISTANCIA + SOBREVIVENCIA V8.4
 -- Experimental: confirmacao de dano depende das mecanicas do jogo.
 -- Para Potassium ou executores Luau compativeis.
 -- Apenas NPCs em Workspace.FeralNPCs; nao ataca jogadores.
@@ -11,10 +11,10 @@ local PathfindingService = game:GetService("PathfindingService")
 local Terrain = workspace.Terrain
 local player = Players.LocalPlayer
 
--- Desliga versoes antigas antes de iniciar a V8.9.16.
+-- Desliga versoes antigas antes de iniciar a V8.9.17.
 _G.TGAutoEat = (_G.TGAutoEat or 0) + 1
 _G.TGFeralDrinkSession = (_G.TGFeralDrinkSession or 0) + 1
-for _, name in ipairs({"TGFeralEatV2", "TGFeralEatV3", "TGFeralEatV4", "TGFeralEatV5", "TGFeralHuntV6", "TGFeralV7", "TGFeralV8", "TGFeralV81", "TGFeralV82", "TGFeralV83", "TGFeralV84", "TGFeralV85", "TGFeralV86", "TGFeralV87", "TGFeralV88", "TGFeralV89", "TGFeralV891", "TGFeralV892", "TGFeralV893", "TGFeralV894", "TGFeralV895", "TGFeralV896", "TGFeralV897", "TGFeralV898", "TGFeralV899", "TGFeralV8910", "TGFeralV8911", "TGFeralV8912", "TGFeralV8913", "TGFeralV8914", "TGFeralV8915", "TGFeralV8916", "TGAttackLab", "TGAttackLabV2"}) do
+for _, name in ipairs({"TGFeralEatV2", "TGFeralEatV3", "TGFeralEatV4", "TGFeralEatV5", "TGFeralHuntV6", "TGFeralV7", "TGFeralV8", "TGFeralV81", "TGFeralV82", "TGFeralV83", "TGFeralV84", "TGFeralV85", "TGFeralV86", "TGFeralV87", "TGFeralV88", "TGFeralV89", "TGFeralV891", "TGFeralV892", "TGFeralV893", "TGFeralV894", "TGFeralV895", "TGFeralV896", "TGFeralV897", "TGFeralV898", "TGFeralV899", "TGFeralV8910", "TGFeralV8911", "TGFeralV8912", "TGFeralV8913", "TGFeralV8914", "TGFeralV8915", "TGFeralV8916", "TGFeralV8917", "TGAttackLab", "TGAttackLabV2"}) do
     local old = _G[name]
     if type(old) == "table" and type(old.stop) == "function" then
         pcall(old.stop)
@@ -156,8 +156,8 @@ local active = true
 local controlsEpoch = 0 -- interrompe operacoes antigas quando qualquer botao muda
 local destroyPanel = nil
 local stopQuestTabHooks = nil
-_G.TGFeralV8916Counter = (_G.TGFeralV8916Counter or 0) + 1
-local sessionID = _G.TGFeralV8916Counter
+_G.TGFeralV8917Counter = (_G.TGFeralV8917Counter or 0) + 1
+local sessionID = _G.TGFeralV8917Counter
 local movementConnection = nil
 local movementHum, movementRoot, savedWalkSpeed = nil, nil, nil
 local savedAutoRotate, savedAlign, savedAlignEnabled = nil, nil, nil
@@ -210,7 +210,7 @@ local function getThirst()
     return getPercent("Thirst") or getPercent("Hydration")
 end
 
--- === AUTO QUEST V8.9.16 ===
+-- === AUTO QUEST V8.9.17 ===
 -- O jogo controla a lista de quests e os progressos. Este bloco so le a GUI.
 -- A GUI mostra 3 quests por aba; guardamos as ultimas quests vistas de cada aba.
 -- Coordenadas de Alder Creek, Beaver Ponds e Elk Crossing foram verificadas no jogo.
@@ -519,7 +519,7 @@ local function faceTarget(root, target, immediate)
     end
 end
 
--- === V8.9.16: PROTECAO CONTRA AFOGAMENTO ===
+-- === V8.9.17: PROTECAO CONTRA AFOGAMENTO ===
 -- Nao modifica Terrain nem teleporta o personagem. O servidor ainda pode corrigir fisica.
 local waterParams = RaycastParams.new()
 waterParams.FilterType = Enum.RaycastFilterType.Include
@@ -765,7 +765,7 @@ local function stop()
     if safeRescueConnection then safeRescueConnection:Disconnect() end
 end
 
-_G.TGFeralV8916 = {
+_G.TGFeralV8917 = {
     stop = stop,
     config = CONFIG,
     isActive = function() return active end,
@@ -797,7 +797,7 @@ _G.TGFeralV8916 = {
     end
 }
 
--- === PAINEL TIGER / AMBER PREMIUM V8.9.16 ===
+-- === PAINEL TIGER / AMBER PREMIUM V8.9.17 ===
 -- Interface Roblox real (nao a imagem estatica). Logo usa emoji de tigre,
 -- evitando rbxassetid inventado; pode-se informar um ID proprio opcional abaixo.
 do
@@ -917,7 +917,7 @@ do
             },emblem)
         end
         textLabel(header,"THE GOAT",19,C.white,offset(75,15),offset(201,25),true)
-        textLabel(header,"FERAL  |  V8.9.16 PREMIUM",10,C.yellow,offset(76,41),offset(225,18),true)
+        textLabel(header,"FERAL  |  V8.9.17 PREMIUM",10,C.yellow,offset(76,41),offset(225,18),true)
         local mini=uiNew("TextButton", {
             Name="Minimize", Position=UDim2.new(1,-45,0,16),Size=offset(30,30),
             Text="−",Font=Enum.Font.GothamBold,TextSize=20,TextColor3=C.white,
@@ -1095,13 +1095,13 @@ do
                 task.wait(1.2)
             end
         end)
-        print("PAINEL TIGER PREMIUM THE GOAT V8.9.16: pronto | sem X | minimiza com -")
+        print("PAINEL TIGER PREMIUM THE GOAT V8.9.17: pronto | sem X | minimiza com -")
     else
         warn("PAINEL THE GOAT: PlayerGui nao encontrado")
     end
 end
 
--- Inicia o scanner somente depois que _G.TGFeralV8916 existe.
+-- Inicia o scanner somente depois que _G.TGFeralV8917 existe.
 -- Dessa forma, nunca tenta acessar getQuests em um objeto nil.
 task.spawn(function()
     while active do
@@ -1566,7 +1566,42 @@ local function pressRestKey(method)
     return ok
 end
 
--- Verificacao conservadora: retorna nil quando o FERAL nao expõe estado confiavel.
+-- V8.9.17: bloqueia a automacao ate CONFIRMAR que o lobo levantou.
+-- Se a animacao custom nao expuser estado, exige confirmacao visual manual.
+local restGuard = {
+    blocked=false, character=nil, knownRestTracks={}, observedRest=false,
+    attempts=0, lastTry=0, lastWarning=0, lastSource="nao verificado"
+}
+
+local function animationTrackIds(hum)
+    local result={}
+    local animator=hum and hum:FindFirstChildOfClass("Animator")
+    if not animator then return result end
+    local ok,tracks=pcall(function() return animator:GetPlayingAnimationTracks() end)
+    if not ok then return result end
+    for _,track in ipairs(tracks) do
+        local anim=track.Animation
+        local id=anim and tostring(anim.AnimationId) or ""
+        -- Nomes como "Animation" nao sao identificadores confiaveis.
+        if id:match("%d+") then result[id]=true end
+    end
+    return result
+end
+
+local function clearRestGuard(reason)
+    if restGuard.blocked then
+        print("AUTO QUEST REST: LOBO EM PE | automacoes liberadas |",reason)
+    end
+    restGuard.blocked=false
+    restGuard.character=nil
+    restGuard.knownRestTracks={}
+    restGuard.observedRest=false
+    restGuard.attempts=0
+    restGuard.lastTry=0
+    restGuard.lastSource=reason or "em pe"
+end
+
+-- Verificacao conservadora: retorna nil quando o FERAL nao expoe estado confiavel.
 -- Nunca usar apenas Humanoid.Sit=false para deduzir que um animal custom levantou.
 local function detectResting(char, hum)
     local awakeEvidence,awakeSource=nil,nil
@@ -1612,8 +1647,88 @@ local function detectResting(char, hum)
             end
         end
     end
+    -- A animacao nova observada apos o primeiro R e associada ao descanso.
+    -- Nao basta mover o Humanoid para dizer que o animal esta em pe.
+    if next(restGuard.knownRestTracks) and animator then
+        local playing=animationTrackIds(hum)
+        for id in pairs(restGuard.knownRestTracks) do
+            if playing[id] then
+                return true,"animacao de descanso ainda ativa: " .. id
+            end
+        end
+        if next(playing) then
+            return false,"animacao de descanso encerrada; outra animacao ativa"
+        end
+    end
     if awakeEvidence==false then return false,awakeSource end
     return nil,"sem sinal confiavel"
+end
+
+local function restGateReady()
+    if not restGuard.blocked then return true end
+    local char,hum=actor()
+    if not char or char~=restGuard.character then
+        clearRestGuard("personagem substituido")
+        return true
+    end
+    local resting,source=detectResting(char,hum)
+    restGuard.lastSource=source
+    if resting==false then
+        clearRestGuard(source)
+        return true
+    end
+    local now=os.clock()
+    stopMovement()
+    setActivity("AutoQuest","AGUARDANDO LEVANTAR")
+    setActivity("AutoFood","BLOQUEADO: DESCANSO")
+    setActivity("AutoDrink","BLOQUEADO: DESCANSO")
+    setActivity("GetAmber",CONFIG.GetAmber and "BLOQUEADO: DESCANSO" or "DESATIVADO")
+    -- So tenta R novamente se EXISTE evidencia de que continua deitado.
+    -- Com estado desconhecido, novo R poderia fazer o lobo DEITAR de novo.
+    if resting==true and restGuard.attempts<3 and now-restGuard.lastTry>=7 then
+        restGuard.attempts += 1
+        restGuard.lastTry=now
+        local method=restGuard.attempts%2==1 and "vim" or nil
+        warn("AUTO QUEST REST: ainda deitado; tentando levantar com R |",
+            "tentativa",restGuard.attempts,"|",source)
+        pressRestKey(method)
+        task.wait(2)
+        local after,afterSource=detectResting(char,hum)
+        restGuard.lastSource=afterSource
+        if after==false then
+            clearRestGuard(afterSource)
+            return true
+        end
+    end
+    if now-restGuard.lastWarning>=7 then
+        restGuard.lastWarning=now
+        warn("AUTO QUEST REST: CAÇA/TRAVEL/FOOD/DRINK BLOQUEADOS; " ..
+            "saida do descanso ainda nao confirmada | " .. tostring(restGuard.lastSource))
+        warn("AUTO QUEST REST: se o lobo JA estiver em pe, use " ..
+            "_G.TGFeralV8917.confirmStanding() apos conferir visualmente")
+    end
+    return false
+end
+
+-- Diagnostic API methods are registered only after rest helpers exist.
+_G.TGFeralV8917.getRestStatus = function()
+    local char,hum=actor()
+    local resting,source=nil,"sem personagem"
+    if char and hum then resting,source=detectResting(char,hum) end
+    return {blocked=restGuard.blocked, resting=resting, source=source,
+        attempts=restGuard.attempts, knownRestTracks=animationTrackIds(hum)}
+end
+_G.TGFeralV8917.confirmStanding = function()
+    if not restGuard.blocked then return true end
+    local char,hum=actor()
+    if not char or not hum then return false end
+    local resting,source=detectResting(char,hum)
+    if resting==true then
+        warn("AUTO QUEST REST: nao liberado; ainda ha evidencia de descanso:",source)
+        return false
+    end
+    clearRestGuard("confirmacao visual manual do usuario")
+    return true
 end
 
 local function targetAimPosition(npc)
@@ -1887,6 +2002,10 @@ end
 local function chaseAndAttack(npc, questTitle, amberMode)
     local char, hum, root = actor()
     if not char or not CONFIG.AutoFood or (questTitle and not CONFIG.AutoQuest) then return false end
+    if not restGateReady() then
+        warn("AUTO HUNT: ataque cancelado; lobo ainda nao levantou do descanso")
+        return false
+    end
     if amberMode then
         local ready = amberReady(true)
         if not ready then return false end
@@ -2364,7 +2483,7 @@ local function drinkOnce()
     end
 end
 
--- === AUTO QUEST DE BEBER EM LOCAL ESPECIFICO V8.9.16 ===
+-- === AUTO QUEST DE BEBER EM LOCAL ESPECIFICO V8.9.17 ===
 -- Usa pontos que o usuario testou fazendo a missao chegar a DONE.
 -- Nao confunde uma fonte qualquer com Alder Creek / Beaver Ponds.
 local namedDrinkRetryAt = {}
@@ -2524,7 +2643,7 @@ local function doNamedDrinkQuest(quest)
     return false
 end
 
--- === AUTO QUEST V8.9.16: LOCAIS, REST E TERRITORIO ===
+-- === AUTO QUEST V8.9.17: LOCAIS, REST E TERRITORIO ===
 local visitRetryAt, restRetryAt, territoryRetryAt={},{},{}
 
 local function namedVisitWaypoint(q)
@@ -2645,7 +2764,8 @@ local function visitNamedQuest(q)
     end
 end
 
-local restKeyToggled=false
+-- Corrigido: a quest DONE nao significa que o animal levantou.
+-- Ao terminar, a automacao so volta a agir com estado EM PE confirmado.
 local function doRestQuest(q)
     if not active or not CONFIG.AutoQuest or not q or q.done then return end
     if os.clock() < (restRetryAt[q.title] or 0) then return end
@@ -2654,16 +2774,37 @@ local function doRestQuest(q)
     local char,hum,root=actor()
     if not char then return end
     stopMovement()
-    local initialProgress=tonumber(tostring(q.progress):match("(%d+)%s*/")) or 0
-    local lastNumber=initialProgress
+    if restGuard.blocked and not restGateReady() then return end
+    local baseline=animationTrackIds(hum)
+    local beforeRest,beforeSource=detectResting(char,hum)
+    if beforeRest~=true then
+        if not pressRestKey() then
+            warn("AUTO QUEST REST: nao conseguiu enviar R para iniciar descanso")
+            return
+        end
+    else
+        print("AUTO QUEST REST: personagem ja estava deitado |",beforeSource)
+    end
+    restGuard.blocked=true
+    restGuard.character=char
+    restGuard.knownRestTracks={}
+    restGuard.observedRest=false
+    restGuard.attempts=0
+    restGuard.lastTry=0
+    restGuard.lastWarning=0
+    task.wait(1.1)
+    -- Aprende a animacao que surgiu ao iniciar o descanso (se houver).
+    local afterStart=animationTrackIds(hum)
+    for id in pairs(afterStart) do
+        if not baseline[id] then restGuard.knownRestTracks[id]=true end
+    end
+    local stateAtStart,sourceAtStart=detectResting(char,hum)
+    if stateAtStart==true then restGuard.observedRest=true end
+    print("AUTO QUEST REST: R INICIO |",q.title,"| estado:",
+        tostring(stateAtStart),"|",sourceAtStart)
+    local lastNumber=tonumber(tostring(q.progress):match("(%d+)%s*/")) or 0
     local lastChange=os.clock()
     local lastPrint=0
-    if not pressRestKey() then
-        warn("AUTO QUEST REST: nao conseguiu pressionar R")
-        return
-    end
-    restKeyToggled=true
-    print("AUTO QUEST REST: R pressionado |",q.title,"|",q.progress)
     local started=os.clock()
     while active and CONFIG.AutoQuest and controlsEpoch==epoch and player.Character==char
         and root.Parent and os.clock()-started<CONFIG.QuestRestTimeout do
@@ -2691,47 +2832,52 @@ local function doRestQuest(q)
             break
         end
         if os.clock()-lastChange>=CONFIG.QuestRestNoProgressSeconds then
-            warn("AUTO QUEST REST: contador nao avanca; R pode nao ter ativado o descanso")
+            warn("AUTO QUEST REST: contador nao avanca; verificando saida")
             break
         end
     end
-    -- Encerrar descanso independentemente de DONE, timeout ou emergencia.
-    -- Um pequeno atraso apos DONE evita que a mesma animacao bloqueie o R.
-    if restKeyToggled then
-        restKeyToggled=false
-        if player.Character~=char or not root.Parent then
-            warn("AUTO QUEST REST: personagem mudou; nao foi possivel confirmar a saida")
-            return
-        end
-        task.wait(1.5)
-        local ok=pressRestKey()
-        if not ok then
-            warn("AUTO QUEST REST: nao conseguiu enviar R para levantar")
-            return
-        end
-        print("AUTO QUEST REST: R enviado para sair do descanso; verificando estado")
+    if not active or player.Character~=char or not root.Parent then
+        clearRestGuard("personagem reiniciado ou automacao desligada")
+        return
+    end
+    -- Pausa para terminar transicao de animacao/servidor antes de R.
+    task.wait(1.6)
+    local beforeExit,exitSource=detectResting(char,hum)
+    if beforeExit==false then
+        clearRestGuard(exitSource)
+        return
+    end
+    -- R apenas uma vez inicialmente. Repetir cegamente pode deitar de novo.
+    print("AUTO QUEST REST: tentando levantar com R | estado:",tostring(beforeExit))
+    restGuard.lastTry=os.clock()
+    if not pressRestKey() then
+        warn("AUTO QUEST REST: falha ao enviar R para levantar")
+    end
+    task.wait(2.2)
+    local after,afterSource=detectResting(char,hum)
+    restGuard.lastSource=afterSource
+    if after==false then
+        clearRestGuard(afterSource)
+        return
+    end
+    if after==true then
+        -- Confirmadamente deitado: tenta metodo alternativo (VIM) depois de cooldown.
         task.wait(1.8)
-        local resting,source=detectResting(char,hum)
-        if resting==false then
-            print("AUTO QUEST REST: saida confirmada |",source)
-        elseif resting==true then
-            warn("AUTO QUEST REST: ainda descansando |",source,"| tentando mais uma vez")
-            -- So repete quando ha indicio positivo de que continua descansando.
-            task.wait(1.5)
-            local retryOk=pressRestKey("vim")
-            task.wait(1.8)
-            local after,afterSource=detectResting(char,hum)
-            if retryOk and after==false then
-                print("AUTO QUEST REST: levantou na segunda tentativa |",afterSource)
-            elseif after==true then
-                warn("AUTO QUEST REST: continua em descanso; pressione R manualmente |",afterSource)
-            else
-                warn("AUTO QUEST REST: segunda tentativa enviada; saida nao verificavel")
-            end
-        else
-            warn("AUTO QUEST REST: R enviado, mas jogo nao expôs estado para confirmar; verifique se levantou")
+        print("AUTO QUEST REST: continua deitado; tentativa alternativa de R")
+        restGuard.lastTry=os.clock()
+        restGuard.attempts=1
+        pressRestKey("vim")
+        task.wait(2.2)
+        local final,finalSource=detectResting(char,hum)
+        restGuard.lastSource=finalSource
+        if final==false then
+            clearRestGuard(finalSource)
+            return
         end
     end
+    -- FALHA SEGURA: nenhuma operacao de caça, comida, agua ou quests continua
+    -- enquanto o FERAL nao informar (ou o usuario confirmar) que levantou.
+    warn("AUTO QUEST REST: NAO CONFIRMOU QUE LEVANTOU | movimentos/ataques pausados")
 end
 
 local function findTerritoryZone()
@@ -2969,7 +3115,7 @@ local function autoTravelQuest(requestedQuest)
     end
 end
 
-print("=== THE GOAT FERAL V8.9.16 AUTO QUEST | SESSAO " .. sessionID .. " ===")
+print("=== THE GOAT FERAL V8.9.17 AUTO QUEST | SESSAO " .. sessionID .. " ===")
 print("Fome:", tostring(getHunger()))
 print("Ativa <=", CONFIG.HungerStart, "| Para >=", CONFIG.HungerStop)
 print("Raio de caca:", CONFIG.HuntRadius, "| Raio de carcaça:", CONFIG.CarcassRadius)
@@ -2996,9 +3142,9 @@ print("TRAVESSIA AGUA:",CONFIG.WaterAllowCrossing and "LIBERADA" or "COM DESVIOS
     "| nado",CONFIG.WaterSwimSpeed,"studs/s | resgate apos",
     CONFIG.WaterRescueAfterStuckSeconds,"s SEM PROGRESSO")
 print("GET AMBER: caca normal, 1 NPC por vez | alcance", CONFIG.AttackDistance, "studs | intervalo", CONFIG.AttackInterval, "s")
-print("AUTO MOVE SEGURO V8.9.16: corrida ate", CONFIG.SafeMaxSpeed, "| desvio ate", CONFIG.NavCornerSpeed,
+print("AUTO MOVE SEGURO V8.9.17: corrida ate", CONFIG.SafeMaxSpeed, "| desvio ate", CONFIG.NavCornerSpeed,
     "| anti-queda e anti-trava | travessia da agua mantida")
-print("LOG NAV: print(_G.TGFeralV8916.getNavLog())")
+print("LOG NAV: print(_G.TGFeralV8917.getNavLog())")
 print("AUTO QUEST CACA: Catch a mouse e Hunt a herbivore incluidos com selecao sem bloqueio")
 print("MAPA: aliases MapSpots carregados; coordenadas capturadas sempre tem prioridade")
 print("AUTO QUEST LOCAL: Golden Plains", tostring(CONFIG.GoldenPlainsVisitPos))
@@ -3007,6 +3153,8 @@ print("AUTO QUEST AGUA: Golden Waterhole", tostring(CONFIG.GoldenWaterholeDrinkP
 print("SEGURANCA AGUA:",CONFIG.WaterSafetyEnabled,"| Kill Aura: REMOVIDO")
 print("AUTO QUEST LOCAL: Elk Crossing confirmado", tostring(CONFIG.ElkCrossingVisitPos))
 print("AUTO QUEST: Rest for 90s (R) e Claim a territory habilitados")
+print("AUTO QUEST REST V8.9.17: aguardara confirmar EM PE antes de caca/food/drink")
+print("REST STATUS: print(_G.TGFeralV8917.getRestStatus())")
 print("STATUS: ATIVO | Painel Drink / Food / Quest / Get Amber | Speed", CONFIG.Speed)
 print("GET AMBER: " .. (CONFIG.GetAmber and "ON" or "OFF") ..
     " | independente de Auto Quest; exige HP alto, Food e Drink ON")
@@ -3020,6 +3168,23 @@ local drinking = false
 task.spawn(function()
     local ok, err = pcall(function()
         while active do
+            -- Guard de descanso: nunca perseguir/atacar deitado apos R.
+            local currentChar,currentHum=actor()
+            if not restGuard.blocked and currentChar and currentHum then
+                local resting,source=detectResting(currentChar,currentHum)
+                if resting==true then
+                    restGuard.blocked=true
+                    restGuard.character=currentChar
+                    restGuard.lastSource=source
+                    restGuard.attempts=0
+                    restGuard.lastTry=0
+                    restGuard.lastWarning=0
+                    warn("AUTO QUEST REST: animal detectado deitado; automacoes pausadas |",source)
+                end
+            end
+            if restGuard.blocked and not restGateReady() then
+                task.wait(1.25)
+            else
             local h = getHunger()
             local t = getThirst()
             if h == nil then
@@ -3208,19 +3373,24 @@ task.spawn(function()
                     end
                 end
             end
+            end -- fim do guard de descanso
         end
     end)
-    if not ok then warn("Erro no V8.9.16, sessao " .. sessionID .. ":", err) end
+    if not ok then warn("Erro no V8.9.17, sessao " .. sessionID .. ":", err) end
     stop()
-    print("THE GOAT FERAL V8.9.16 SESSAO " .. sessionID .. " DESLIGADA")
+    print("THE GOAT FERAL V8.9.17 SESSAO " .. sessionID .. " DESLIGADA")
 end)
 
 -- Para desligar no console:
--- if _G.TGFeralV8916 then _G.TGFeralV8916.stop() end  -- encerrar tudo (nao ha X)
--- Status: print(_G.TGFeralV8916 and _G.TGFeralV8916.isActive())
--- Get Amber livre: _G.TGFeralV8916.config.GetAmber = true (prefira o botao do painel)
+-- if _G.TGFeralV8917 then _G.TGFeralV8917.stop() end  -- encerrar tudo (nao ha X)
+-- Status: print(_G.TGFeralV8917 and _G.TGFeralV8917.isActive())
+-- Get Amber livre: _G.TGFeralV8917.config.GetAmber = true (prefira o botao do painel)
 -- O Get Amber nao exige AutoQuest ON, nem quests DONE, nem leitura de QUICK/DAILY.
 -- Com ambos ON, Get Amber tem prioridade; desligue Get Amber para retomar as quests.
--- Abates: print(_G.TGFeralV8916.getAmberKills())
+-- Abates: print(_G.TGFeralV8917.getAmberKills())
 -- Get Amber usa apenas AmberSpecies (Deer, Otter, Fox).
--- Missoes: for _, q in ipairs(_G.TGFeralV8916.getQuests()) do print(q.title, q.progress, q.category) end
+-- Missoes: for _, q in ipairs(_G.TGFeralV8917.getQuests()) do print(q.title, q.progress, q.category) end
+
+-- Descanso: print(_G.TGFeralV8917.getRestStatus())
+-- Se o jogo nao expuser animacao/estado, confirme VISUALMENTE o lobo em pe
+-- e somente depois: print(_G.TGFeralV8917.confirmStanding())
