@@ -1,4 +1,6 @@
--- THE GOAT FERAL V8.9.20 - AUTO QUEST DISTANCIA + SOBREVIVENCIA V8.4
+-- THE GOAT FERAL V8.9.21 - QUESTS ALDER/GREAT FALLS + TEMA ON LEGIVEL
+-- BASE: V8.9.20; nenhuma funcao removida.
+-- NOVO: Go to Alder Creek, Great Falls beber DONE e texto ON preto / OFF branco.
 -- Experimental: confirmacao de dano depende das mecanicas do jogo.
 -- Para Potassium ou executores Luau compativeis.
 -- Apenas NPCs em Workspace.FeralNPCs; nao ataca jogadores.
@@ -11,10 +13,10 @@ local PathfindingService = game:GetService("PathfindingService")
 local Terrain = workspace.Terrain
 local player = Players.LocalPlayer
 
--- Desliga versoes antigas antes de iniciar a V8.9.20.
+-- Desliga versoes antigas antes de iniciar a V8.9.21.
 _G.TGAutoEat = (_G.TGAutoEat or 0) + 1
 _G.TGFeralDrinkSession = (_G.TGFeralDrinkSession or 0) + 1
-for _, name in ipairs({"TGFeralEatV2", "TGFeralEatV3", "TGFeralEatV4", "TGFeralEatV5", "TGFeralHuntV6", "TGFeralV7", "TGFeralV8", "TGFeralV81", "TGFeralV82", "TGFeralV83", "TGFeralV84", "TGFeralV85", "TGFeralV86", "TGFeralV87", "TGFeralV88", "TGFeralV89", "TGFeralV891", "TGFeralV892", "TGFeralV893", "TGFeralV894", "TGFeralV895", "TGFeralV896", "TGFeralV897", "TGFeralV898", "TGFeralV899", "TGFeralV8910", "TGFeralV8911", "TGFeralV8912", "TGFeralV8913", "TGFeralV8914", "TGFeralV8915", "TGFeralV8916", "TGFeralV8917", "TGFeralV8918", "TGFeralV8919", "TGFeralV8920", "TGAttackLab", "TGAttackLabV2"}) do
+for _, name in ipairs({"TGFeralEatV2", "TGFeralEatV3", "TGFeralEatV4", "TGFeralEatV5", "TGFeralHuntV6", "TGFeralV7", "TGFeralV8", "TGFeralV81", "TGFeralV82", "TGFeralV83", "TGFeralV84", "TGFeralV85", "TGFeralV86", "TGFeralV87", "TGFeralV88", "TGFeralV89", "TGFeralV891", "TGFeralV892", "TGFeralV893", "TGFeralV894", "TGFeralV895", "TGFeralV896", "TGFeralV897", "TGFeralV898", "TGFeralV899", "TGFeralV8910", "TGFeralV8911", "TGFeralV8912", "TGFeralV8913", "TGFeralV8914", "TGFeralV8915", "TGFeralV8916", "TGFeralV8917", "TGFeralV8918", "TGFeralV8919", "TGFeralV8920", "TGFeralV8921", "TGAttackLab", "TGAttackLabV2"}) do
     local old = _G[name]
     if type(old) == "table" and type(old.stop) == "function" then
         pcall(old.stop)
@@ -78,6 +80,7 @@ local CONFIG = {
     QuestTravelTurnDegrees = 90,    -- percurso fechado em quatro direcoes
     -- Posicao confirmada pelo usuario, reservada para quest local Alder Creek.
     AlderCreekDrinkPos = Vector3.new(-766.89, 21.71, 1085.72),
+    AlderCreekVisitPos = Vector3.new(-832.09, 27.72, 917.30), -- Go to Alder Creek; confirmar DONE na GUI
     -- Beaver Ponds: coordenada confirmada apos o usuario beber e quest ficar DONE.
     BeaverPondsDrinkPos = Vector3.new(-487.36, 37.69, 139.52),
     -- Go to Beaver Ponds: separado de Drink at Beaver Ponds.
@@ -91,7 +94,7 @@ local CONFIG = {
     TallMarshVisitPos = Vector3.new(-694.66, 22.43, 1905.64), -- teste fornecido; conferir DONE
     RedCanyonVisitPos = Vector3.new(987.93, 64.21, 1737.19), -- teste fornecido; conferir DONE
     DeadLagoonDrinkPos = Vector3.new(-79.38, 17.04, 1996.41), -- teste fornecido; conferir DONE
-    GreatFallsDrinkPos = Vector3.new(56.26, 36.84, -358.93), -- teste fornecido; conferir DONE
+    GreatFallsDrinkPos = Vector3.new(37.46, 33.98, -356.41), -- Drink at Great Falls; DONE confirmado com E
     GraniteBasinDrinkPos = Vector3.new(-1021.76, 194.36, -652.34), -- ponto fornecido; conferir DONE
     GoldenWaterholeDrinkPos = Vector3.new(-230.60, 30.71, 310.64), -- validar DONE
     -- Elk Crossing: coordenada capturada pelo usuario e quest confirmada DONE.
@@ -168,8 +171,8 @@ local active = true
 local controlsEpoch = 0 -- interrompe operacoes antigas quando qualquer botao muda
 local destroyPanel = nil
 local stopQuestTabHooks = nil
-_G.TGFeralV8920Counter = (_G.TGFeralV8920Counter or 0) + 1
-local sessionID = _G.TGFeralV8920Counter
+_G.TGFeralV8921Counter = (_G.TGFeralV8921Counter or 0) + 1
+local sessionID = _G.TGFeralV8921Counter
 local movementConnection = nil
 local movementHum, movementRoot, savedWalkSpeed = nil, nil, nil
 local savedAutoRotate, savedAlign, savedAlignEnabled = nil, nil, nil
@@ -223,7 +226,7 @@ local function getThirst()
     return getPercent("Thirst") or getPercent("Hydration")
 end
 
--- === AUTO QUEST V8.9.20 ===
+-- === AUTO QUEST V8.9.21 ===
 -- O jogo controla a lista de quests e os progressos. Este bloco so le a GUI.
 -- A GUI mostra 3 quests por aba; guardamos as ultimas quests vistas de cada aba.
 -- Coordenadas de Alder Creek, Beaver Ponds e Elk Crossing foram verificadas no jogo.
@@ -532,7 +535,7 @@ local function faceTarget(root, target, immediate)
     end
 end
 
--- === V8.9.20: PROTECAO CONTRA AFOGAMENTO ===
+-- === V8.9.21: PROTECAO CONTRA AFOGAMENTO ===
 -- Nao modifica Terrain nem teleporta o personagem. O servidor ainda pode corrigir fisica.
 local waterParams = RaycastParams.new()
 waterParams.FilterType = Enum.RaycastFilterType.Include
@@ -778,7 +781,7 @@ local function stop()
     if safeRescueConnection then safeRescueConnection:Disconnect() end
 end
 
-_G.TGFeralV8920 = {
+_G.TGFeralV8921 = {
     stop = stop,
     config = CONFIG,
     isActive = function() return active end,
@@ -810,7 +813,7 @@ _G.TGFeralV8920 = {
     end
 }
 
--- === PAINEL TIGER / AMBER PREMIUM V8.9.20 ===
+-- === PAINEL TIGER / AMBER PREMIUM V8.9.21 ===
 -- Interface Roblox real (nao a imagem estatica). Logo usa emoji de tigre,
 -- evitando rbxassetid inventado; pode-se informar um ID proprio opcional abaixo.
 do
@@ -935,7 +938,7 @@ do
             },emblem)
         end
         textLabel(header,"THE GOAT",19,C.white,offset(75,15),offset(201,25),true)
-        textLabel(header,"FERAL  |  V8.9.20 NEON",10,C.lime,offset(76,41),offset(225,18),true)
+        textLabel(header,"FERAL  |  V8.9.21 NEON",10,C.lime,offset(76,41),offset(225,18),true)
         local mini=uiNew("TextButton", {
             Name="Minimize", Position=UDim2.new(1,-45,0,16),Size=offset(30,30),
             Text="−",Font=Enum.Font.GothamBold,TextSize=20,TextColor3=C.white,
@@ -1033,7 +1036,7 @@ do
                 refs.status.TextColor3=enabled and C.lime or C.muted
                 refs.text.Text=enabled and "ON" or "OFF"
                 refs.text.Position=enabled and offset(10,0) or offset(28,0)
-                refs.text.TextColor3=enabled and C.white or C.pale
+                refs.text.TextColor3=enabled and Color3.fromRGB(0,0,0) or C.white
                 refs.toggle.BackgroundColor3=enabled and C.neon or C.off
                 refs.knob.Position=enabled and offset(43,5) or offset(5,5)
                 refs.toggleStroke.Transparency=enabled and .3 or .8
@@ -1113,13 +1116,13 @@ do
                 task.wait(1.2)
             end
         end)
-        print("PAINEL ALIEN NEON THE GOAT V8.9.20: pronto | sem X | minimiza com -")
+        print("PAINEL ALIEN NEON THE GOAT V8.9.21: pronto | sem X | minimiza com -")
     else
         warn("PAINEL THE GOAT: PlayerGui nao encontrado")
     end
 end
 
--- Inicia o scanner somente depois que _G.TGFeralV8920 existe.
+-- Inicia o scanner somente depois que _G.TGFeralV8921 existe.
 -- Dessa forma, nunca tenta acessar getQuests em um objeto nil.
 task.spawn(function()
     while active do
@@ -1593,7 +1596,7 @@ local function pressRestKey(method, holdSeconds)
     return ok,err,method
 end
 
--- V8.9.20: bloqueia a automacao ate CONFIRMAR que o lobo levantou.
+-- V8.9.21: bloqueia a automacao ate CONFIRMAR que o lobo levantou.
 -- Se a animacao custom nao expuser estado, exige confirmacao visual manual.
 local restGuard = {
     blocked=false, character=nil, knownRestTracks={}, observedRest=false,
@@ -1734,13 +1737,13 @@ local function restGateReady()
         warn("AUTO QUEST REST: CAÇA/TRAVEL/FOOD/DRINK BLOQUEADOS; " ..
             "saida do descanso ainda nao confirmada | " .. tostring(restGuard.lastSource))
         warn("AUTO QUEST REST: se o lobo JA estiver em pe, use " ..
-            "_G.TGFeralV8920.confirmStanding() apos conferir visualmente")
+            "_G.TGFeralV8921.confirmStanding() apos conferir visualmente")
     end
     return false
 end
 
 -- Diagnostic API methods are registered only after rest helpers exist.
-_G.TGFeralV8920.getRestStatus = function()
+_G.TGFeralV8921.getRestStatus = function()
     local char,hum=actor()
     local resting,source=nil,"sem personagem"
     if char and hum then resting,source=detectResting(char,hum) end
@@ -1750,7 +1753,7 @@ _G.TGFeralV8920.getRestStatus = function()
         inputOK=restGuard.lastInputOK, progress=restGuard.lastProgress,
         failedStarts=restGuard.failedStarts, inputError=restGuard.lastInputError}
 end
-_G.TGFeralV8920.confirmStanding = function()
+_G.TGFeralV8921.confirmStanding = function()
     if not restGuard.blocked then return true end
     local char,hum=actor()
     if not char or not hum then return false end
@@ -2212,7 +2215,7 @@ safeRescueConnection=RunService.Heartbeat:Connect(function()
     end
 end)
 
--- === AUTO DRINK V8.9.20: MARGEM SEGURA, NAO VOXEL DE AGUA ===
+-- === AUTO DRINK V8.9.21: MARGEM SEGURA, NAO VOXEL DE AGUA ===
 -- Escolhe solo seco ao lado da agua e recusa lago abaixo de barranco.
 -- Nao reduz a protecao anti-queda nem altera o Terrain.
 local failedWater = {}
@@ -2563,7 +2566,7 @@ local function drinkOnce()
     end
 end
 
--- === AUTO QUEST DE BEBER EM LOCAL ESPECIFICO V8.9.20 ===
+-- === AUTO QUEST DE BEBER EM LOCAL ESPECIFICO V8.9.21 ===
 -- Usa pontos que o usuario testou fazendo a missao chegar a DONE.
 -- Nao confunde uma fonte qualquer com Alder Creek / Beaver Ponds.
 local namedDrinkRetryAt = {}
@@ -2726,12 +2729,15 @@ local function doNamedDrinkQuest(quest)
     return false
 end
 
--- === AUTO QUEST V8.9.20: LOCAIS, REST E TERRITORIO ===
+-- === AUTO QUEST V8.9.21: LOCAIS, REST E TERRITORIO ===
 local visitRetryAt, restRetryAt, territoryRetryAt={},{},{}
 
 local function namedVisitWaypoint(q)
     if not q then return nil end
     local t=string.lower(q.title or "")
+    if t:find("go to alder creek",1,true) or t:find("explore alder creek",1,true) then
+        return CONFIG.AlderCreekVisitPos,"Alder Creek (visita)"
+    end
     if t:find("black ravine",1,true) then
         return CONFIG.BlackRavineVisitPos,"Black Ravine"
     end
@@ -2853,7 +2859,7 @@ local function visitNamedQuest(q)
     end
 end
 
--- V8.9.20: o log "R enviado" nunca foi prova de que o FERAL recebeu a tecla.
+-- V8.9.21: o log "R enviado" nunca foi prova de que o FERAL recebeu a tecla.
 -- Inicia por VIM, confirma o progresso real da quest e so entao trava as
 -- automacoes ate confirmar a saida do descanso. Sem progresso: cooldown.
 local function doRestQuest(q)
@@ -3297,7 +3303,7 @@ local function autoTravelQuest(requestedQuest)
     end
 end
 
-print("=== THE GOAT FERAL V8.9.20 AUTO QUEST | SESSAO " .. sessionID .. " ===")
+print("=== THE GOAT FERAL V8.9.21 AUTO QUEST | SESSAO " .. sessionID .. " ===")
 print("Fome:", tostring(getHunger()))
 print("Ativa <=", CONFIG.HungerStart, "| Para >=", CONFIG.HungerStop)
 print("Raio de caca:", CONFIG.HuntRadius, "| Raio de carcaça:", CONFIG.CarcassRadius)
@@ -3310,6 +3316,7 @@ print("PAINEL: Auto Drink", CONFIG.AutoDrink, "Auto Food", CONFIG.AutoFood, "Aut
 print("AUTO QUEST DISTANCIA:", CONFIG.QuestTravelEnabled and "ON" or "OFF",
     "| speed:", CONFIG.QuestTravelSpeed, "| trecho:", CONFIG.QuestTravelLegStuds)
 print("AUTO QUEST AGUA: Alder Creek confirmado", tostring(CONFIG.AlderCreekDrinkPos))
+print("AUTO QUEST LOCAL: Go to Alder Creek (aguarda DONE)", tostring(CONFIG.AlderCreekVisitPos))
 print("AUTO QUEST AGUA: Beaver Ponds confirmado", tostring(CONFIG.BeaverPondsDrinkPos))
 print("AUTO QUEST LOCAL: Go to Beaver Ponds (teste)", tostring(CONFIG.BeaverPondsVisitPos))
 print("AUTO QUEST LOCAL: Black Ravine", tostring(CONFIG.BlackRavineVisitPos))
@@ -3318,15 +3325,15 @@ print("AUTO QUEST LOCAL: Juniper Fields", tostring(CONFIG.JuniperFieldsVisitPos)
 print("AUTO QUEST LOCAL: Tall Marsh (teste)", tostring(CONFIG.TallMarshVisitPos))
 print("AUTO QUEST LOCAL: Red Canyon (teste)", tostring(CONFIG.RedCanyonVisitPos))
 print("AUTO QUEST AGUA: Dead Lagoon (teste)", tostring(CONFIG.DeadLagoonDrinkPos))
-print("AUTO QUEST AGUA: Great Falls (teste)", tostring(CONFIG.GreatFallsDrinkPos))
+print("AUTO QUEST AGUA: Great Falls [DONE confirmado]", tostring(CONFIG.GreatFallsDrinkPos))
 print("AUTO QUEST AGUA: Granite Basin (teste)", tostring(CONFIG.GraniteBasinDrinkPos))
 print("TRAVESSIA AGUA:",CONFIG.WaterAllowCrossing and "LIBERADA" or "COM DESVIOS",
     "| nado",CONFIG.WaterSwimSpeed,"studs/s | resgate apos",
     CONFIG.WaterRescueAfterStuckSeconds,"s SEM PROGRESSO")
 print("GET AMBER: caca normal, 1 NPC por vez | alcance", CONFIG.AttackDistance, "studs | intervalo", CONFIG.AttackInterval, "s")
-print("AUTO MOVE SEGURO V8.9.20: corrida ate", CONFIG.SafeMaxSpeed, "| desvio ate", CONFIG.NavCornerSpeed,
+print("AUTO MOVE SEGURO V8.9.21: corrida ate", CONFIG.SafeMaxSpeed, "| desvio ate", CONFIG.NavCornerSpeed,
     "| anti-queda e anti-trava | travessia da agua mantida")
-print("LOG NAV: print(_G.TGFeralV8920.getNavLog())")
+print("LOG NAV: print(_G.TGFeralV8921.getNavLog())")
 print("AUTO QUEST CACA: Catch a mouse e Hunt a herbivore incluidos com selecao sem bloqueio")
 print("MAPA: aliases MapSpots carregados; coordenadas capturadas sempre tem prioridade")
 print("AUTO QUEST LOCAL: Golden Plains", tostring(CONFIG.GoldenPlainsVisitPos))
@@ -3339,11 +3346,11 @@ print("SEGURANCA AGUA:",CONFIG.WaterSafetyEnabled,"| Kill Aura: REMOVIDO")
 print("AUTO QUEST LOCAL: Elk Crossing confirmado", tostring(CONFIG.ElkCrossingVisitPos))
 print("AUTO QUEST AGUA: Drink at Elk Crossing (aguarda DONE)", tostring(CONFIG.ElkCrossingDrinkPos))
 print("AUTO QUEST: Rest for 90s (R) e Claim a territory habilitados")
-print("AUTO QUEST REST V8.9.20: tenta R via VIM, depois executor; exige progresso real na GUI")
+print("AUTO QUEST REST V8.9.21: tenta R via VIM, depois executor; exige progresso real na GUI")
 print("AUTO QUEST REST: se R nao for reconhecido, faz pausa e segue outras quests; nao entra em bloqueio falso")
-print("REST STATUS: print(_G.TGFeralV8920.getRestStatus())")
+print("REST STATUS: print(_G.TGFeralV8921.getRestStatus())")
 print("RESURREICAO: sem clique automatico | aguarda respawn natural do FERAL")
-print("RESPAWN NATURAL STATUS: print(_G.TGFeralV8920.getRespawnStatus())")
+print("RESPAWN NATURAL STATUS: print(_G.TGFeralV8921.getRespawnStatus())")
 print("STATUS: ATIVO | Painel Drink / Food / Quest / Get Amber | Speed", CONFIG.Speed)
 print("GET AMBER: " .. (CONFIG.GetAmber and "ON" or "OFF") ..
     " | independente de Auto Quest; exige HP alto, Food e Drink ON")
@@ -3354,7 +3361,7 @@ end
 local feeding = false
 local drinking = false
 
--- === AUTO RESPAWN V8.9.20 ===
+-- === AUTO RESPAWN V8.9.21 ===
 -- No Roblox do FERAL o botao verde RESPAWN eh gratuito.
 -- NUNCA clica REVIVE, CHANGE ANIMAL, 2x GROWTH ou qualquer compra.
 -- O nome da GUI nao foi identificado, portanto o alvo eh procurado pelo texto
@@ -3407,7 +3414,7 @@ local function locateRespawnUI()
     return best,deathTitle
 end
 
-_G.TGFeralV8920.getRespawnStatus=function()
+_G.TGFeralV8921.getRespawnStatus=function()
     local char,hum=actor()
     return {
         enabled=CONFIG.AutoRespawn,dead=respawnState.dead,
@@ -3699,21 +3706,21 @@ task.spawn(function()
             end -- fim do guard de morte / respawn
         end
     end)
-    if not ok then warn("Erro no V8.9.20, sessao " .. sessionID .. ":", err) end
+    if not ok then warn("Erro no V8.9.21, sessao " .. sessionID .. ":", err) end
     stop()
-    print("THE GOAT FERAL V8.9.20 SESSAO " .. sessionID .. " DESLIGADA")
+    print("THE GOAT FERAL V8.9.21 SESSAO " .. sessionID .. " DESLIGADA")
 end)
 
 -- Para desligar no console:
--- if _G.TGFeralV8920 then _G.TGFeralV8920.stop() end  -- encerrar tudo (nao ha X)
--- Status: print(_G.TGFeralV8920 and _G.TGFeralV8920.isActive())
--- Get Amber livre: _G.TGFeralV8920.config.GetAmber = true (prefira o botao do painel)
+-- if _G.TGFeralV8921 then _G.TGFeralV8921.stop() end  -- encerrar tudo (nao ha X)
+-- Status: print(_G.TGFeralV8921 and _G.TGFeralV8921.isActive())
+-- Get Amber livre: _G.TGFeralV8921.config.GetAmber = true (prefira o botao do painel)
 -- O Get Amber nao exige AutoQuest ON, nem quests DONE, nem leitura de QUICK/DAILY.
 -- Com ambos ON, Get Amber tem prioridade; desligue Get Amber para retomar as quests.
--- Abates: print(_G.TGFeralV8920.getAmberKills())
+-- Abates: print(_G.TGFeralV8921.getAmberKills())
 -- Get Amber usa apenas AmberSpecies (Deer, Otter, Fox).
--- Missoes: for _, q in ipairs(_G.TGFeralV8920.getQuests()) do print(q.title, q.progress, q.category) end
+-- Missoes: for _, q in ipairs(_G.TGFeralV8921.getQuests()) do print(q.title, q.progress, q.category) end
 
--- Descanso: print(_G.TGFeralV8920.getRestStatus())
+-- Descanso: print(_G.TGFeralV8921.getRestStatus())
 -- Se o jogo nao expuser animacao/estado, confirme VISUALMENTE o lobo em pe
--- e somente depois: print(_G.TGFeralV8920.confirmStanding())
+-- e somente depois: print(_G.TGFeralV8921.confirmStanding())
