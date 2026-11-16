@@ -990,7 +990,7 @@ do
             },emblem)
         end
         textLabel(header,"THE GOAT",19,C.white,offset(75,15),offset(201,25),true)
-        textLabel(header,"FERAL  |  FOOD + GRAMA",10,C.lime,offset(76,41),offset(225,18),true)
+        textLabel(header,"FERAL  |  FOOD + GRAMA D1",10,C.lime,offset(76,41),offset(225,18),true)
         local mini=uiNew("TextButton", {
             Name="Minimize", Position=UDim2.new(1,-45,0,16),Size=offset(30,30),
             Text="−",Font=Enum.Font.GothamBold,TextSize=20,TextColor3=C.white,
@@ -1694,17 +1694,16 @@ local function promptState()
     local gui = player:FindFirstChild("PlayerGui")
     local screen = gui and gui:FindFirstChild("FeralPrompt")
     if not screen or not screen.Enabled then return nil end
-    local ok, label = pcall(function()
-        return screen.Holder.Prompt.Button.Chip.Text
-    end)
-    if not ok or not label then return nil end
-    if typeof(label) ~= "Instance" then return nil end
-    local obj = label
-    while obj and obj ~= screen do
-        if obj:IsA("GuiObject") and not obj.Visible then return nil end
-        obj = obj.Parent
+    local obj = screen
+    for _, name in ipairs({"Holder", "Prompt", "Button", "Chip"}) do
+        obj = obj:FindFirstChild(name)
+        if not obj or (obj:IsA("GuiObject") and not obj.Visible) then return nil end
     end
-    return string.upper(label.Text)
+    local label = obj:FindFirstChild("Text") or obj
+    if not (label:IsA("TextLabel") or label:IsA("TextButton")) or not label.Visible then
+        return nil
+    end
+    return label.Text:upper():match("^%s*(.-)%s*$")
 end
 
 local function pressE()
@@ -3537,6 +3536,34 @@ _G.TGFeralV8924.getRespawnStatus=function()
     }
 end
 
+-- Relatorio somente de leitura. Cada consulta registra a propria falha.
+_G.TGFeralV8924.diagnostico = function()
+    local api = _G.TGFeralV8924
+    local report = {versao="FOOD + GRAMA / DIAG 1", sessao=sessionID}
+    local function collect(name, query)
+        local ok, value = pcall(query)
+        if ok then report[name] = value else report[name] = {erro=tostring(value)} end
+    end
+    collect("execucao", api.getRuntimeStatus)
+    collect("botoes", api.getControls)
+    collect("atividade", api.getActivity)
+    collect("alimentacao", function()
+        return {comida=getHunger(), agua=getThirst(), prompt=promptState() or "ausente",
+            promptGrama=grazePrompt() or "ausente", gramaPendente=grazing,
+            comidaPendente=feeding, aguaPendente=drinking}
+    end)
+    collect("movimento", function()
+        local _, hum, root = actor()
+        return {ativo=movementConnection~=nil, resgate=waterSafety.rescuing,
+            velocidade=hum and hum.WalkSpeed, velocidadeReal=root and root.AssemblyLinearVelocity.Magnitude,
+            descansoBloqueado=restGuard.blocked}
+    end)
+    collect("respawn", api.getRespawnStatus)
+    collect("missoes", api.getQuests)
+    collect("navegacao", api.getNavLog)
+    return game:GetService("HttpService"):JSONEncode(report)
+end
+
 -- Monitor independente: interrompe imediatamente caca/viagem durante a tela de morte.
 -- Ao reaparecer, reavalia fome/sede e reseta quests antigas do personagem anterior.
 task.spawn(function()
@@ -3605,7 +3632,7 @@ end)
 -- Loop principal continua abaixo; mortes pausam todas as rotinas automaticamente.
 task.spawn(function()
     while active do
-        local ok, err = pcall(function()
+        local ok, err = xpcall(function()
             if respawnState.dead then
                 task.wait(1)
             else
@@ -3841,6 +3868,9 @@ task.spawn(function()
             end
             end -- fim do guard de descanso
             end -- fim do guard de morte / respawn
+        end, function(err)
+            if debug and type(debug.traceback) == "function" then return debug.traceback(tostring(err), 2) end
+            return tostring(err)
         end)
         if not active then break end
         if ok then
