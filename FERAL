@@ -33,7 +33,6 @@ local CONFIG = {
     HungerStart = 80,       -- Comeca a procurar alimento (como no arquivo enviado)
     HungerStop = 95,        -- Para quando a fome recuperar
     AutoQuest = true,
-    AutoGraze = false,
     AutoFood = true,      -- Cacar e comer para sobrevivencia; tambem autoriza quests de caca
     AutoRespawn = false, -- jogo realiza renascimento natural; monitor apenas pausa e retoma
     -- GET AMBER: independente de Auto Quest e de quests pendentes; desligado por padrao.
@@ -197,7 +196,6 @@ local runtimeStatus = {
 -- Estado real da operacao ativa, exibido no painel.
 local activity = {
     AutoDrink = "EM ESPERA",
-    AutoGraze = "EM ESPERA",
     AutoFood = "EM ESPERA",
     AutoQuest = "EM ESPERA",
     GetAmber = "DESATIVADO",
@@ -858,10 +856,10 @@ _G.TGFeralV8924 = {
             movementActive=movementConnection~=nil}
     end,
     getControls = function()
-        return {AutoDrink = CONFIG.AutoDrink, AutoFood = CONFIG.AutoFood, AutoGraze = CONFIG.AutoGraze, AutoQuest = CONFIG.AutoQuest, GetAmber = CONFIG.GetAmber, AutoRespawn = CONFIG.AutoRespawn}
+        return {AutoDrink = CONFIG.AutoDrink, AutoFood = CONFIG.AutoFood, AutoQuest = CONFIG.AutoQuest, GetAmber = CONFIG.GetAmber, AutoRespawn = CONFIG.AutoRespawn}
     end,
     getActivity = function()
-        return {AutoDrink = activity.AutoDrink, AutoFood = activity.AutoFood, AutoGraze = activity.AutoGraze, AutoQuest = activity.AutoQuest, GetAmber = activity.GetAmber, AutoRespawn = activity.AutoRespawn}
+        return {AutoDrink = activity.AutoDrink, AutoFood = activity.AutoFood, AutoQuest = activity.AutoQuest, GetAmber = activity.GetAmber, AutoRespawn = activity.AutoRespawn}
     end
 }
 
@@ -939,7 +937,7 @@ do
             table.insert(connections,connection)
             return connection
         end
-        local width,fullHeight,smallHeight=352,582,84
+        local width,fullHeight,smallHeight=352,510,84
         local mainPos=UDim2.new(1,-374,0,84)
         local shadow=uiNew("Frame", {
             Name="Shadow", Position=mainPos + UDim2.fromOffset(4,6),
@@ -990,7 +988,7 @@ do
             },emblem)
         end
         textLabel(header,"THE GOAT",19,C.white,offset(75,15),offset(201,25),true)
-        textLabel(header,"FERAL  |  FOOD + GRAMA D1",10,C.lime,offset(76,41),offset(225,18),true)
+        textLabel(header,"FERAL  |  V8.9.24 NEON",10,C.lime,offset(76,41),offset(225,18),true)
         local mini=uiNew("TextButton", {
             Name="Minimize", Position=UDim2.new(1,-45,0,16),Size=offset(30,30),
             Text="−",Font=Enum.Font.GothamBold,TextSize=20,TextColor3=C.white,
@@ -1012,7 +1010,6 @@ do
         local controls={
             {key="AutoDrink",name="AUTO DRINK",desc="Encontrar agua e beber",symbol="💦"},
             {key="AutoFood",name="AUTO FOOD",desc="Cacar e se alimentar",symbol="🍖"},
-            {key="AutoGraze",name="AUTO EAT (GRAMA)",desc="Comer grama com E",symbol="🌿"},
             {key="AutoQuest",name="AUTO QUEST",desc="Missoes",symbol="🗺️"},
             {key="GetAmber",name="GET AMBER",desc="Farm independente das missoes",symbol="💰"}
         }
@@ -1066,16 +1063,16 @@ do
         end
         -- Status bar, live Hunger and Thirst percentages from character attributes.
         local footerRule=uiNew("Frame",{
-            Size=UDim2.new(1,-32,0,1),Position=offset(16,409),
+            Size=UDim2.new(1,-32,0,1),Position=offset(16,337),
             BackgroundColor3=Color3.fromRGB(35,108,48),BorderSizePixel=0
         },body)
-        local foodIcon=textLabel(body,"◆",15,C.neon,offset(17,421),offset(19,23),true)
-        local foodStatus=textLabel(body,"FOOD --%",11,C.white,offset(36,422),offset(94,22),true)
-        local waterIcon=textLabel(body,"◉",15,C.neon,offset(137,421),offset(20,23),true)
-        local waterStatus=textLabel(body,"WATER --%",11,C.white,offset(157,422),offset(109,22),true)
-        local online=textLabel(body,"● ATIVO",11,C.lime,offset(270,422),offset(78,22),true)
-        local amberCountLabel=textLabel(body,"GET AMBER  |  FARM 0  |  TOTAL 0",10,C.lime,offset(17,450),offset(317,19),true)
-        textLabel(body,"Arraste pelo topo  |  - minimiza",9,C.muted,offset(17,477),offset(317,14),false)
+        local foodIcon=textLabel(body,"◆",15,C.neon,offset(17,349),offset(19,23),true)
+        local foodStatus=textLabel(body,"FOOD --%",11,C.white,offset(36,350),offset(94,22),true)
+        local waterIcon=textLabel(body,"◉",15,C.neon,offset(137,349),offset(20,23),true)
+        local waterStatus=textLabel(body,"WATER --%",11,C.white,offset(157,350),offset(109,22),true)
+        local online=textLabel(body,"● ATIVO",11,C.lime,offset(270,350),offset(78,22),true)
+        local amberCountLabel=textLabel(body,"GET AMBER  |  FARM 0  |  TOTAL 0",10,C.lime,offset(17,378),offset(317,19),true)
+        textLabel(body,"Arraste pelo topo  |  - minimiza",9,C.muted,offset(17,405),offset(317,14),false)
 
         local function animate(inst,props)
             Tween:Create(inst,TweenInfo.new(.15,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),props):Play()
@@ -1109,9 +1106,6 @@ do
                 if not active then return end
                 local now=not CONFIG[item.key]
                 CONFIG[item.key]=now
-                if item.key == "AutoGraze" or item.key == "AutoFood" then
-                    setActivity("AutoGraze","EM ESPERA")
-                end
                 -- Alternar Auto Quest nao interrompe um farm de Amber ativo.
                 if item.key ~= "AutoRespawn" and not (item.key == "AutoQuest" and CONFIG.GetAmber) then
                     controlsEpoch += 1
@@ -1251,7 +1245,7 @@ local function startMovement(hum, root, targetPosition, stopDistance, speedOverr
         or hum.Health <= 0 then
         return function() return math.huge, false, true, "CANCELADO", "SEM PERSONAGEM ATIVO" end
     end
-    local speedLimit = CONFIG.AutoGraze and 12 or (followOptions and CONFIG.HuntMaxSpeed or CONFIG.SafeMaxSpeed)
+    local speedLimit = followOptions and CONFIG.HuntMaxSpeed or CONFIG.SafeMaxSpeed
     stopMovement()
     movementHum, movementRoot = hum, root
     savedWalkSpeed = hum.WalkSpeed
@@ -1562,13 +1556,11 @@ local function startMovement(hum, root, targetPosition, stopDistance, speedOverr
                     local okStep = safeStep(from, direction, math.min(6, CONFIG.SafeLookAhead))
                     if okStep then
                         local chaseSpeed = math.min(flat.Magnitude, speedLimit)
-                        hum.WalkSpeed = CONFIG.AutoGraze and chaseSpeed or 19.5
+                        hum.WalkSpeed = 19.5
                         hum:Move(direction, false)
-                        if not CONFIG.AutoGraze then
-                            local previous = root.AssemblyLinearVelocity
-                            root.AssemblyLinearVelocity = Vector3.new(
-                                direction.X*chaseSpeed, previous.Y, direction.Z*chaseSpeed)
-                        end
+                        local previous = root.AssemblyLinearVelocity
+                        root.AssemblyLinearVelocity = Vector3.new(
+                            direction.X*chaseSpeed, previous.Y, direction.Z*chaseSpeed)
                         local look = type(followOptions.lookAt)=="function" and
                             followOptions.lookAt() or goal
                         faceTarget(root, look, false)
@@ -1663,13 +1655,11 @@ local function startMovement(hum, root, targetPosition, stopDistance, speedOverr
                 speed = math.min(speed, 43)
             end
             -- Preserva o controlador customizado, mas limita a velocidade fisica.
-            hum.WalkSpeed = CONFIG.AutoGraze and speed or 19.5
+            hum.WalkSpeed = 19.5
             faceTarget(root, from + direction * 8, false)
             hum:Move(direction, false)
-            if not CONFIG.AutoGraze then
-                local velocity = root.AssemblyLinearVelocity
-                root.AssemblyLinearVelocity = Vector3.new(direction.X * speed, velocity.Y, direction.Z * speed)
-            end
+            local velocity = root.AssemblyLinearVelocity
+            root.AssemblyLinearVelocity = Vector3.new(direction.X * speed, velocity.Y, direction.Z * speed)
             if nav.mode ~= "DIRETO" then
                 trace("DESVIO: " .. nav.mode .. " | obstaculo=" .. nav.lastReason)
             end
@@ -1694,16 +1684,16 @@ local function promptState()
     local gui = player:FindFirstChild("PlayerGui")
     local screen = gui and gui:FindFirstChild("FeralPrompt")
     if not screen or not screen.Enabled then return nil end
-    local obj = screen
-    for _, name in ipairs({"Holder", "Prompt", "Button", "Chip"}) do
-        obj = obj:FindFirstChild(name)
-        if not obj or (obj:IsA("GuiObject") and not obj.Visible) then return nil end
+    local ok, label = pcall(function()
+        return screen.Holder.Prompt.Button.Chip.Text
+    end)
+    if not ok or not label then return nil end
+    local obj = label
+    while obj and obj ~= screen do
+        if obj:IsA("GuiObject") and not obj.Visible then return nil end
+        obj = obj.Parent
     end
-    local label = obj:FindFirstChild("Text") or obj
-    if not (label:IsA("TextLabel") or label:IsA("TextButton")) or not label.Visible then
-        return nil
-    end
-    return label.Text:upper():match("^%s*(.-)%s*$")
+    return string.upper(label.Text)
 end
 
 local function pressE()
@@ -1720,29 +1710,6 @@ local function pressE()
         task.wait(0.3)
         vim:SendKeyEvent(false, Enum.KeyCode.E, false, game)
     end)
-end
-
--- Interacao local com a grama: E inicia e EATING indica que ja esta comendo.
-local function grazePrompt()
-    local state = promptState()
-    if state == "EAT" or state == "EATING" then return state end
-    local pg = player:FindFirstChild("PlayerGui")
-    if not pg then return nil end
-    for _, label in ipairs(pg:GetDescendants()) do
-        if label:IsA("TextLabel") or label:IsA("TextButton") then
-            local text = string.upper(label.Text):match("^%s*(.-)%s*$")
-            if text == "EAT" or text == "EATING" then
-                local parent = label
-                while parent and parent ~= pg do
-                    if parent:IsA("GuiObject") and not parent.Visible then break end
-                    if parent:IsA("LayerCollector") and not parent.Enabled then break end
-                    parent = parent.Parent
-                end
-                if parent == pg then return text end
-            end
-        end
-    end
-    return nil
 end
 
 -- Rest quest: no FERAL o usuario confirmou R como toggle de descanso.
@@ -3467,7 +3434,6 @@ if CONFIG.AutoDrink and getThirst() == nil then
     print("Auto Drink aguarda atributo Thirst/Hydration; Auto Hunt/Eat segue normalmente")
 end
 
-local grazing, nextGrazePress = false, 0
 local feeding = false
 local drinking = false
 
@@ -3536,34 +3502,6 @@ _G.TGFeralV8924.getRespawnStatus=function()
     }
 end
 
--- Relatorio somente de leitura. Cada consulta registra a propria falha.
-_G.TGFeralV8924.diagnostico = function()
-    local api = _G.TGFeralV8924
-    local report = {versao="FOOD + GRAMA / DIAG 1", sessao=sessionID}
-    local function collect(name, query)
-        local ok, value = pcall(query)
-        if ok then report[name] = value else report[name] = {erro=tostring(value)} end
-    end
-    collect("execucao", api.getRuntimeStatus)
-    collect("botoes", api.getControls)
-    collect("atividade", api.getActivity)
-    collect("alimentacao", function()
-        return {comida=getHunger(), agua=getThirst(), prompt=promptState() or "ausente",
-            promptGrama=grazePrompt() or "ausente", gramaPendente=grazing,
-            comidaPendente=feeding, aguaPendente=drinking}
-    end)
-    collect("movimento", function()
-        local _, hum, root = actor()
-        return {ativo=movementConnection~=nil, resgate=waterSafety.rescuing,
-            velocidade=hum and hum.WalkSpeed, velocidadeReal=root and root.AssemblyLinearVelocity.Magnitude,
-            descansoBloqueado=restGuard.blocked}
-    end)
-    collect("respawn", api.getRespawnStatus)
-    collect("missoes", api.getQuests)
-    collect("navegacao", api.getNavLog)
-    return game:GetService("HttpService"):JSONEncode(report)
-end
-
 -- Monitor independente: interrompe imediatamente caca/viagem durante a tela de morte.
 -- Ao reaparecer, reavalia fome/sede e reseta quests antigas do personagem anterior.
 task.spawn(function()
@@ -3583,7 +3521,6 @@ task.spawn(function()
                 respawnState.deaths+=1
                 controlsEpoch+=1
                 stopMovement()
-                grazing=false
                 feeding=false
                 drinking=false
                 setActivity("AutoFood","PAUSADO: MORTE")
@@ -3610,7 +3547,6 @@ task.spawn(function()
                 questDoneAnnounced={}
                 questLastLogged={}
                 clearRestGuard("novo personagem apos respawn")
-                grazing=false
                 feeding=false
                 drinking=false
                 setActivity("AutoFood","EM ESPERA")
@@ -3632,7 +3568,7 @@ end)
 -- Loop principal continua abaixo; mortes pausam todas as rotinas automaticamente.
 task.spawn(function()
     while active do
-        local ok, err = xpcall(function()
+        local ok, err = pcall(function()
             if respawnState.dead then
                 task.wait(1)
             else
@@ -3670,12 +3606,6 @@ task.spawn(function()
                     thirstTrigger = CONFIG.AmberMinThirst
                 end
 
-                if not CONFIG.AutoGraze or h >= 100 then
-                    grazing = false
-                elseif h <= 95 then
-                    grazing = true
-                end
-                if not grazing then setActivity("AutoGraze","EM ESPERA") end
                 if not CONFIG.AutoFood then feeding = false end
                 if not CONFIG.AutoDrink then drinking = false end
 
@@ -3698,10 +3628,6 @@ task.spawn(function()
                 local namedQuest = CONFIG.AutoDrink and not CONFIG.GetAmber and questPending("AGUA", function(q)
                     return namedDrinkWaypoint(q) ~= nil
                 end) or nil
-                local grassPrompt = CONFIG.AutoGraze and grazing and grazePrompt()
-                if CONFIG.AutoGraze and grazing and not grassPrompt then
-                    setActivity("AutoGraze","AGUARDANDO EAT NA GRAMA")
-                end
                 if CONFIG.AutoDrink and drinking and t and t < CONFIG.QuestNamedDrinkSafetyThreshold then
                     if os.clock() >= nextDrinkTry then
                         setActivity("AutoDrink","BUSCANDO AGUA")
@@ -3723,21 +3649,6 @@ task.spawn(function()
                     else
                         task.wait(0.7)
                     end
-                elseif CONFIG.AutoGraze and grazing and grassPrompt then
-                    local state = grassPrompt
-                    if state == "EATING" then
-                        setActivity("AutoGraze","COMENDO GRAMA")
-                    elseif state == "EAT" then
-                        stopMovement()
-                        setActivity("AutoGraze","COMER GRAMA")
-                        if os.clock() >= nextGrazePress then
-                            nextGrazePress = os.clock() + 3
-                            pressE()
-                        end
-                    else
-                        setActivity("AutoGraze","AGUARDANDO EAT NA GRAMA")
-                    end
-                    task.wait(0.75)
                 elseif CONFIG.AutoFood and feeding then
                     local corpse, distance, count = closestNPC(true, CONFIG.CarcassRadius)
                     if corpse then
@@ -3868,9 +3779,6 @@ task.spawn(function()
             end
             end -- fim do guard de descanso
             end -- fim do guard de morte / respawn
-        end, function(err)
-            if debug and type(debug.traceback) == "function" then return debug.traceback(tostring(err), 2) end
-            return tostring(err)
         end)
         if not active then break end
         if ok then
