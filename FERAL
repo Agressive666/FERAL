@@ -1,6 +1,6 @@
 -- THE GOAT FERAL V8.9.24 - AUTO QUEST
 -- BASE: V8.9.23, com as funcoes e melhorias preservadas da V8.9.21.
--- NOVO: acompanhamento continuo de NPC movel + previsao curta de deslocamento.
+-- REVISAO: limpeza de memoria, conexoes e recuperacao limitada de erros.
 -- Mantem painel ET neon, coordenadas, nado e protecoes de descanso.
 -- Experimental: confirmacao de dano depende das mecanicas do jogo.
 -- Para Potassium ou executores Luau compativeis.
@@ -177,7 +177,7 @@ local sessionID = _G.TGFeralV8924Counter
 local movementConnection = nil
 local movementHum, movementRoot, savedWalkSpeed = nil, nil, nil
 local savedAutoRotate, savedAlign, savedAlignEnabled = nil, nil, nil
-local failedUntil = {}
+local failedUntil = setmetatable({}, {__mode = "k"})
 local nextDrinkTry = 0
 local navLog = {} -- historico compacto (ultimas 60 mensagens)
 local amberKills = 0
@@ -185,6 +185,10 @@ local totalConfirmedKills = 0
 local countedNPCKills = setmetatable({}, {__mode = "k"})
 local amberPauseUntil = 0
 local amberLastReason = nil
+local runtimeStatus = {
+    consecutiveErrors = 0, totalErrors = 0,
+    lastError = nil, lastErrorAt = nil, recovering = false
+}
 
 -- Estado real da operacao ativa, exibido no painel.
 local activity = {
@@ -236,7 +240,6 @@ local questLastSignature = nil
 local questDoneAnnounced = {}
 local lastQuestWarning = 0
 local questLastLogged = {}
-local questPagesObserved = {} -- nome dos titulos por aba, independente de progresso
 
 local function questClean(value)
     return tostring(value or ""):gsub("[%c]", " "):gsub("^%s+", ""):gsub("%s+$", "")
@@ -375,8 +378,17 @@ local function questScan()
     end
     table.sort(signature)
     local sig = table.concat(signature, " || ")
-    if count >= 3 and sig ~= "" then
-        questPagesObserved[sig] = true
+    -- Usa o mesmo prazo da consulta para liberar registros realmente vencidos.
+    local now = os.clock()
+    for title, quest in pairs(questSeen) do
+        if now - quest.lastSeen > CONFIG.QuestCacheSeconds then
+            questSeen[title] = nil
+            questLastLogged[title] = nil
+            questDoneAnnounced[title] = nil
+        end
+    end
+    for npc, deadline in pairs(failedUntil) do
+        if deadline <= now or not npc.Parent then failedUntil[npc] = nil end
     end
     if count > 0 then
         -- QUICK e DAILY alternam a lista visivel, mas nao geram spam no console.
@@ -790,7 +802,11 @@ local function stop()
     if not active then return end
     active = false
     controlsEpoch += 1
-    stopMovement()
+    pcall(stopMovement)
+    if safeRescueConnection then
+        pcall(function() safeRescueConnection:Disconnect() end)
+        safeRescueConnection = nil
+    end
     if stopQuestTabHooks then
         pcall(stopQuestTabHooks)
         stopQuestTabHooks = nil
@@ -799,13 +815,21 @@ local function stop()
         pcall(destroyPanel)
         destroyPanel = nil
     end
-    if safeRescueConnection then safeRescueConnection:Disconnect() end
 end
 
 _G.TGFeralV8924 = {
     stop = stop,
     config = CONFIG,
     isActive = function() return active end,
+    getRuntimeStatus = function()
+        return {
+            active = active, recovering = runtimeStatus.recovering,
+            consecutiveErrors = runtimeStatus.consecutiveErrors,
+            totalErrors = runtimeStatus.totalErrors,
+            lastError = runtimeStatus.lastError,
+            lastErrorAt = runtimeStatus.lastErrorAt
+        }
+    end,
     sessionID = sessionID,
     getQuests = currentQuests,
     scanQuests = questScan,
@@ -1065,7 +1089,7 @@ do
             local hunger,thirst=getHunger(),getThirst()
             foodStatus.Text="FOOD "..(hunger and tostring(math.floor(hunger)) or "--").."%"
             waterStatus.Text="WATER "..(thirst and tostring(math.floor(thirst)) or "--").."%"
-            online.Text="● ATIVO"
+            online.Text=runtimeStatus.recovering and "● RECUPERANDO" or "● ATIVO"
             local _, currentHum = actor()
             local hp = currentHum and currentHum.MaxHealth > 0
                 and math.floor(currentHum.Health / currentHum.MaxHealth * 100) or 0
@@ -1209,6 +1233,10 @@ local function makePreyTracker(npc, ourRoot, leadSeconds, maxLead)
 end
 
 local function startMovement(hum, root, targetPosition, stopDistance, speedOverride, allowWater, followOptions)
+    if not active or not hum or not root or not hum.Parent or not root.Parent
+        or hum.Health <= 0 then
+        return function() return math.huge, false, true, "CANCELADO", "SEM PERSONAGEM ATIVO" end
+    end
     stopMovement()
     movementHum, movementRoot = hum, root
     savedWalkSpeed = hum.WalkSpeed
@@ -1423,7 +1451,11 @@ local function startMovement(hum, root, targetPosition, stopDistance, speedOverr
     end
 
     movementConnection = RunService.Heartbeat:Connect(function()
-        if not active or epoch ~= controlsEpoch or not hum.Parent or not root.Parent then return end
+        if not active or epoch ~= controlsEpoch or not hum.Parent or not root.Parent
+            or hum.Health <= 0 or player.Character ~= character then
+            stopMovement()
+            return
+        end
         if nav.failed then
             -- Se entrar na agua apos falha de caminho, o nado/resgate assume.
             if hum:GetState() ~= Enum.HumanoidStateType.Swimming then
@@ -3586,12 +3618,11 @@ task.spawn(function()
                 safeLandPosition=nil
                 safeLandCharacter=nil
                 nextDrinkTry=0
-                failedUntil={}
+                failedUntil=setmetatable({}, {__mode = "k"})
                 questSeen={}
                 questLastSignature=nil
                 questDoneAnnounced={}
                 questLastLogged={}
-                questPagesObserved={}
                 clearRestGuard("novo personagem apos respawn")
                 feeding=false
                 drinking=false
@@ -3613,8 +3644,8 @@ end)
 
 -- Loop principal continua abaixo; mortes pausam todas as rotinas automaticamente.
 task.spawn(function()
-    local ok, err = pcall(function()
-        while active do
+    while active do
+        local ok, err = pcall(function()
             if respawnState.dead then
                 task.wait(1)
             else
@@ -3825,9 +3856,40 @@ task.spawn(function()
             end
             end -- fim do guard de descanso
             end -- fim do guard de morte / respawn
+        end)
+        if not active then break end
+        if ok then
+            runtimeStatus.consecutiveErrors = 0
+            if runtimeStatus.recovering then
+                for _, key in ipairs({"AutoFood", "AutoDrink", "AutoQuest", "GetAmber"}) do
+                    if activity[key] == "RECUPERANDO ERRO" then
+                        setActivity(key, CONFIG[key] and "EM ESPERA" or "DESATIVADO")
+                    end
+                end
+            end
+            runtimeStatus.recovering = false
+        else
+            runtimeStatus.consecutiveErrors += 1
+            runtimeStatus.totalErrors += 1
+            runtimeStatus.lastError = tostring(err)
+            runtimeStatus.lastErrorAt = os.clock()
+            runtimeStatus.recovering = true
+            controlsEpoch += 1
+            pcall(stopMovement)
+            feeding, drinking = false, false
+            for _, key in ipairs({"AutoFood", "AutoDrink", "AutoQuest", "GetAmber"}) do
+                setActivity(key, "RECUPERANDO ERRO")
+            end
+            warn("THE GOAT: falha na rotina | tentativa",
+                runtimeStatus.consecutiveErrors, "/ 3 |", runtimeStatus.lastError)
+            if runtimeStatus.consecutiveErrors >= 3 then
+                warn("THE GOAT: encerrado apos 3 falhas consecutivas; consulte getRuntimeStatus()")
+                break
+            end
+            task.wait(runtimeStatus.consecutiveErrors * 2)
         end
-    end)
-    if not ok then warn("Erro no V8.9.24, sessao " .. sessionID .. ":", err) end
+    end
+    runtimeStatus.recovering = false
     stop()
     print("THE GOAT FERAL V8.9.24 SESSAO " .. sessionID .. " DESLIGADA")
 end)
