@@ -990,7 +990,7 @@ do
             },emblem)
         end
         textLabel(header,"THE GOAT",19,C.white,offset(75,15),offset(201,25),true)
-        textLabel(header,"FERAL  |  V8.9.24 NEON",10,C.lime,offset(76,41),offset(225,18),true)
+        textLabel(header,"FERAL  |  FOOD + GRAMA",10,C.lime,offset(76,41),offset(225,18),true)
         local mini=uiNew("TextButton", {
             Name="Minimize", Position=UDim2.new(1,-45,0,16),Size=offset(30,30),
             Text="−",Font=Enum.Font.GothamBold,TextSize=20,TextColor3=C.white,
@@ -1012,7 +1012,7 @@ do
         local controls={
             {key="AutoDrink",name="AUTO DRINK",desc="Encontrar agua e beber",symbol="💦"},
             {key="AutoFood",name="AUTO FOOD",desc="Cacar e se alimentar",symbol="🍖"},
-            {key="AutoGraze",name="AUTO EAT HERBÍVORO",desc="Comer grama com E",symbol="🌿"},
+            {key="AutoGraze",name="AUTO EAT (GRAMA)",desc="Comer grama com E",symbol="🌿"},
             {key="AutoQuest",name="AUTO QUEST",desc="Missoes",symbol="🗺️"},
             {key="GetAmber",name="GET AMBER",desc="Farm independente das missoes",symbol="💰"}
         }
@@ -1109,8 +1109,6 @@ do
                 if not active then return end
                 local now=not CONFIG[item.key]
                 CONFIG[item.key]=now
-                if now and item.key == "AutoGraze" then CONFIG.AutoFood = false end
-                if now and item.key == "AutoFood" then CONFIG.AutoGraze = false end
                 if item.key == "AutoGraze" or item.key == "AutoFood" then
                     setActivity("AutoGraze","EM ESPERA")
                 end
@@ -3673,6 +3671,10 @@ task.spawn(function()
                 local namedQuest = CONFIG.AutoDrink and not CONFIG.GetAmber and questPending("AGUA", function(q)
                     return namedDrinkWaypoint(q) ~= nil
                 end) or nil
+                local grassPrompt = CONFIG.AutoGraze and grazing and grazePrompt()
+                if CONFIG.AutoGraze and grazing and not grassPrompt then
+                    setActivity("AutoGraze","AGUARDANDO EAT NA GRAMA")
+                end
                 if CONFIG.AutoDrink and drinking and t and t < CONFIG.QuestNamedDrinkSafetyThreshold then
                     if os.clock() >= nextDrinkTry then
                         setActivity("AutoDrink","BUSCANDO AGUA")
@@ -3694,8 +3696,8 @@ task.spawn(function()
                     else
                         task.wait(0.7)
                     end
-                elseif CONFIG.AutoGraze and grazing then
-                    local state = grazePrompt()
+                elseif CONFIG.AutoGraze and grazing and grassPrompt then
+                    local state = grassPrompt
                     if state == "EATING" then
                         setActivity("AutoGraze","COMENDO GRAMA")
                     elseif state == "EAT" then
