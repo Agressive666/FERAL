@@ -5,7 +5,7 @@
 -- Experimental: confirmacao de dano depende das mecanicas do jogo.
 -- Para Potassium ou executores Luau compativeis.
 -- A rotina de caca e o Get Amber originais nao foram substituidos.
--- Get Amber usa a mesma caca normal de um unico NPC por vez.
+-- Get Amber persegue um NPC por vez e usa o fluxo Bite/BiteHit quando disponivel.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -45,7 +45,7 @@ local CONFIG = {
     AmberStartThirst = 90,
     AmberMinThirst = 75,
     AmberHuntTimeout = 90,
-    -- Get Amber sem Kill Aura: caca um animal de cada vez usando AttackDistance/AttackInterval.
+    -- Get Amber: uma presa por vez, fluxo Bite/BiteHit perto do alvo; clique na aproximacao.
     AmberPauseAfterDangerSeconds = 90, -- pausa de seguranca apos HP baixo
     -- AGUA: atravessa lagos normalmente. Resgate SO depois de 10s sem avancar.
     WaterSafetyEnabled = true,
@@ -830,7 +830,9 @@ _G.TGFeralV8924 = {
             consecutiveErrors = runtimeStatus.consecutiveErrors,
             totalErrors = runtimeStatus.totalErrors,
             lastError = runtimeStatus.lastError,
-            lastErrorAt = runtimeStatus.lastErrorAt
+            lastErrorAt = runtimeStatus.lastErrorAt,
+            lastAttackMethod = runtimeStatus.lastAttackMethod,
+            lastAttackError = runtimeStatus.lastAttackError
         }
     end,
     sessionID = sessionID,
@@ -2190,6 +2192,66 @@ local function eatCarcass(npc)
     return false
 end
 
+-- Fluxo do arquivo fornecido: uma presa por vez, somente durante Get Amber.
+-- O envio nao prova dano nem recebimento de moedas.
+local function attackAmberNPC(npc, character, actionEpoch)
+    local folder = workspace:FindFirstChild("FeralNPCs")
+    local remote = game:GetService("ReplicatedStorage"):FindFirstChild("WolfActions")
+    if not remote or not remote:IsA("RemoteEvent") then
+        return nil, "WolfActions indisponivel; usando clique"
+    end
+    local function canSend()
+        if not active or controlsEpoch ~= actionEpoch or not CONFIG.GetAmber
+            or not CONFIG.AutoFood or not CONFIG.AutoDrink or restGuard.blocked
+            or player.Character ~= character then return false end
+        local _, hum, root = actor()
+        if not hum or not root or hum.Health <= 0 or not root.Parent then return false end
+        if not folder or not npc.Parent or not npc:IsDescendantOf(folder)
+            or Players:GetPlayerFromCharacter(npc)
+            or npc:GetAttribute("FeralDead") == true then return false end
+        local targetHealth = npcHealth(npc)
+        if targetHealth ~= nil and targetHealth <= 0 then return false end
+        local ready = amberReady(false)
+        if not ready then return false end
+        local position = npc:GetPivot().Position
+        if horizontal(root.Position, position).Magnitude > CONFIG.AttackDistance
+            or math.abs(root.Position.Y - position.Y) > CONFIG.AttackVerticalTolerance then
+            return false, "FORA DO ALCANCE"
+        end
+        return true
+    end
+    local allowed, reason = canSend()
+    if not allowed then
+        if reason == "FORA DO ALCANCE" then return nil, reason end
+        return false, "ATAQUE CANCELADO"
+    end
+    local sent = false
+    local skippedReason = nil
+    local ok, err = pcall(function()
+        local timestamp = workspace:GetServerTimeNow()
+        remote:FireServer("Bite", timestamp)
+        task.wait(0.12)
+        local stillAllowed
+        stillAllowed, skippedReason = canSend()
+        if not stillAllowed then return end
+        remote:FireServer("BiteHit", {m = npc, t = timestamp})
+        sent = true
+    end)
+    if not ok then
+        runtimeStatus.lastAttackError = tostring(err)
+        if not canSend() then return false, "ATAQUE CANCELADO" end
+        return nil, "Falha WolfActions; usando clique"
+    end
+    if not sent then
+        if skippedReason == "FORA DO ALCANCE" then
+            return true, "Bite enviado; reaproximando"
+        end
+        return false, "ATAQUE CANCELADO"
+    end
+    runtimeStatus.lastAttackError = nil
+    return true, "WolfActions Bite/BiteHit"
+end
+
 local function chaseAndAttack(npc, questTitle, amberMode)
     local char, hum, root = actor()
     if not char or not CONFIG.AutoFood or (questTitle and not CONFIG.AutoQuest) then return false end
@@ -2320,16 +2382,29 @@ local function chaseAndAttack(npc, questTitle, amberMode)
         if os.clock() - lastAttack >= CONFIG.AttackInterval then
             lastAttack = os.clock()
             local preferredMethod = 1 + math.floor(attemptsSinceDamage / 4) % 3
-            local succeeded, method = clickAttack(npc, preferredMethod)
+            local succeeded, method
+            if amberMode and inAttackRange then
+                succeeded, method = attackAmberNPC(npc, char, actionEpoch)
+            end
+            -- Preserva o clique durante a aproximacao ou quando o evento nao esta disponivel.
+            if succeeded == nil then
+                succeeded, method = clickAttack(npc, preferredMethod)
+            end
             lastMethod = method
+            runtimeStatus.lastAttackMethod = method
             if succeeded then
                 attacks += 1
                 -- Fora do alcance, ausencia de dano nao indica falha de entrada.
                 if inAttackRange then
                     attemptsSinceDamage += 1
                     if attemptsSinceDamage % 4 == 0 then
-                        warn("ATAQUE: 4 comandos sem dano observavel; alternando entrada",
-                            "| metodo:", method, "| HP visivel:", tostring(npcHP))
+                        if method == "WolfActions Bite/BiteHit" then
+                            warn("GET AMBER: comandos enviados sem dano confirmado",
+                                "| metodo:", method, "| HP visivel:", tostring(npcHP))
+                        else
+                            warn("ATAQUE: 4 comandos sem dano observavel; alternando entrada",
+                                "| metodo:", method, "| HP visivel:", tostring(npcHP))
+                        end
                     end
                 end
             else
