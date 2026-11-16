@@ -1936,7 +1936,6 @@ local function clickAttack(npc, preferredMethod)
     if camera and CONFIG.AimMouseAtTarget then
         screenPoint, onScreen = camera:WorldToViewportPoint(targetAimPosition(npc))
 end
-
 local function pressF()
     if type(keypress) == "function" and type(keyrelease) == "function" then
         return pcall(function()
