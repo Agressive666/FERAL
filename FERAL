@@ -30,8 +30,9 @@ if _G.TGFeralQuestScanner and type(_G.TGFeralQuestScanner.stop) == "function" th
 end
 
 local CONFIG = {
-    HungerStart = 80,       -- Comeca a procurar alimento (como no arquivo enviado)
-    HungerStop = 95,        -- Para quando a fome recuperar
+    ElephantWalkSpeed = 12, -- velocidade maxima em terra nesta versao para elefante
+    HungerStart = 95,       -- Comeca a procurar alimento (como no arquivo enviado)
+    HungerStop = 100,        -- Para quando a fome recuperar
     AutoQuest = true,
     AutoFood = true,      -- Cacar e comer para sobrevivencia; tambem autoriza quests de caca
     AutoRespawn = false, -- jogo realiza renascimento natural; monitor apenas pausa e retoma
@@ -1009,7 +1010,7 @@ do
         local sec=textLabel(body,"//  AUTOMACOES",11,C.pale,offset(17,10),offset(240,21),true)
         local controls={
             {key="AutoDrink",name="AUTO DRINK",desc="Encontrar agua e beber",symbol="💦"},
-            {key="AutoFood",name="AUTO FOOD",desc="Cacar e se alimentar",symbol="🍖"},
+            {key="AutoFood",name="AUTO EAT HERBIVORO",desc="Comer grama quando aparecer EAT",symbol="🍖"},
             {key="AutoQuest",name="AUTO QUEST",desc="Missoes",symbol="🗺️"},
             {key="GetAmber",name="GET AMBER",desc="Farm independente das missoes",symbol="💰"}
         }
@@ -1245,7 +1246,7 @@ local function startMovement(hum, root, targetPosition, stopDistance, speedOverr
         or hum.Health <= 0 then
         return function() return math.huge, false, true, "CANCELADO", "SEM PERSONAGEM ATIVO" end
     end
-    local speedLimit = followOptions and CONFIG.HuntMaxSpeed or CONFIG.SafeMaxSpeed
+    local speedLimit = CONFIG.ElephantWalkSpeed
     stopMovement()
     movementHum, movementRoot = hum, root
     savedWalkSpeed = hum.WalkSpeed
@@ -1556,11 +1557,8 @@ local function startMovement(hum, root, targetPosition, stopDistance, speedOverr
                     local okStep = safeStep(from, direction, math.min(6, CONFIG.SafeLookAhead))
                     if okStep then
                         local chaseSpeed = math.min(flat.Magnitude, speedLimit)
-                        hum.WalkSpeed = 19.5
+                        hum.WalkSpeed = chaseSpeed
                         hum:Move(direction, false)
-                        local previous = root.AssemblyLinearVelocity
-                        root.AssemblyLinearVelocity = Vector3.new(
-                            direction.X*chaseSpeed, previous.Y, direction.Z*chaseSpeed)
                         local look = type(followOptions.lookAt)=="function" and
                             followOptions.lookAt() or goal
                         faceTarget(root, look, false)
@@ -1655,11 +1653,9 @@ local function startMovement(hum, root, targetPosition, stopDistance, speedOverr
                 speed = math.min(speed, 43)
             end
             -- Preserva o controlador customizado, mas limita a velocidade fisica.
-            hum.WalkSpeed = 19.5
+            hum.WalkSpeed = speed
             faceTarget(root, from + direction * 8, false)
             hum:Move(direction, false)
-            local velocity = root.AssemblyLinearVelocity
-            root.AssemblyLinearVelocity = Vector3.new(direction.X * speed, velocity.Y, direction.Z * speed)
             if nav.mode ~= "DIRETO" then
                 trace("DESVIO: " .. nav.mode .. " | obstaculo=" .. nav.lastReason)
             end
@@ -1688,6 +1684,7 @@ local function promptState()
         return screen.Holder.Prompt.Button.Chip.Text
     end)
     if not ok or not label then return nil end
+    if typeof(label) ~= "Instance" then return nil end
     local obj = label
     while obj and obj ~= screen do
         if obj:IsA("GuiObject") and not obj.Visible then return nil end
@@ -1710,6 +1707,29 @@ local function pressE()
         task.wait(0.3)
         vim:SendKeyEvent(false, Enum.KeyCode.E, false, game)
     end)
+end
+
+-- Interacao local com a grama: E inicia e EATING indica que ja esta comendo.
+local function grazePrompt()
+    local state = promptState()
+    if state == "EAT" or state == "EATING" then return state end
+    local pg = player:FindFirstChild("PlayerGui")
+    if not pg then return nil end
+    for _, label in ipairs(pg:GetDescendants()) do
+        if label:IsA("TextLabel") or label:IsA("TextButton") then
+            local text = string.upper(label.Text):match("^%s*(.-)%s*$")
+            if text == "EAT" or text == "EATING" then
+                local parent = label
+                while parent and parent ~= pg do
+                    if parent:IsA("GuiObject") and not parent.Visible then break end
+                    if parent:IsA("LayerCollector") and not parent.Enabled then break end
+                    parent = parent.Parent
+                end
+                if parent == pg then return text end
+            end
+        end
+    end
+    return nil
 end
 
 -- Rest quest: no FERAL o usuario confirmou R como toggle de descanso.
@@ -3434,6 +3454,7 @@ if CONFIG.AutoDrink and getThirst() == nil then
     print("Auto Drink aguarda atributo Thirst/Hydration; Auto Hunt/Eat segue normalmente")
 end
 
+local nextGrazePress = 0
 local feeding = false
 local drinking = false
 
@@ -3650,35 +3671,20 @@ task.spawn(function()
                         task.wait(0.7)
                     end
                 elseif CONFIG.AutoFood and feeding then
-                    local corpse, distance, count = closestNPC(true, CONFIG.CarcassRadius)
-                    if corpse then
-                        print("CARCACA:", corpse.Name, "dist:", math.floor(distance))
-                        setActivity("AutoFood","INDO COMER")
-                        if walkToCarcass(corpse) then
-                            setActivity("AutoFood","SE ALIMENTANDO")
-                            if not eatCarcass(corpse) and CONFIG.AutoFood then
-                                failedUntil[corpse] = os.clock() + 40
-                            end
-                        else
-                            if CONFIG.AutoFood then failedUntil[corpse] = os.clock() + 40 end
+                    local state = grazePrompt()
+                    if state == "EATING" then
+                        setActivity("AutoFood","COMENDO GRAMA")
+                    elseif state == "EAT" then
+                        stopMovement()
+                        setActivity("AutoFood","COMER GRAMA")
+                        if os.clock() >= nextGrazePress then
+                            nextGrazePress = os.clock() + 3
+                            pressE()
                         end
-                        setActivity("AutoFood","EM ESPERA")
                     else
-                        local prey, d, aliveCount = closestNPC(false, CONFIG.HuntRadius)
-                        if prey then
-                            print("ALVO VIVO:", prey.Name, "dist:", math.floor(d))
-                            setActivity("AutoFood","CACANDO NPC")
-                            local killed = chaseAndAttack(prey)
-                            setActivity("AutoFood","EM ESPERA")
-                            if killed and active then
-                                -- O proximo ciclo prioriza a carcaca recem criada.
-                                task.wait(0.5)
-                            end
-                        else
-                            print("Sem animais NPC acessiveis | candidatos:", aliveCount or 0)
-                            task.wait(4)
-                        end
+                        setActivity("AutoFood","AGUARDANDO EAT NA GRAMA")
                     end
+                    task.wait(0.75)
                 elseif CONFIG.GetAmber then
                     -- Get Amber e INDEPENDENTE do Auto Quest:
                     -- nao aguarda QUICK/DAILY e pode farmar com quests pendentes.
