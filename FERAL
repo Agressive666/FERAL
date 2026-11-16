@@ -1,7 +1,7 @@
--- THE GOAT FERAL V8.9.23 - AUTO QUEST + NPC AURA INTEGRADA
--- BASE ORIGINAL V8.9.21 PRESERVADA; AURA SO LIGADA JUNTO DO AUTO QUEST.
--- BASE: V8.9.20; nenhuma funcao removida.
--- NOVO: Go to Alder Creek, Great Falls beber DONE e texto ON preto / OFF branco.
+-- THE GOAT FERAL V8.9.24 - AUTO QUEST + NPC AURA INTEGRADA
+-- BASE: V8.9.23, com as funcoes e melhorias preservadas da V8.9.21.
+-- NOVO: acompanhamento continuo de NPC movel + previsao curta de deslocamento.
+-- Mantem painel ET neon, coordenadas, nado e protecoes de descanso.
 -- Experimental: confirmacao de dano depende das mecanicas do jogo.
 -- Para Potassium ou executores Luau compativeis.
 -- Apenas NPCs em Workspace.FeralNPCs; nao ataca jogadores.
@@ -15,10 +15,10 @@ local PathfindingService = game:GetService("PathfindingService")
 local Terrain = workspace.Terrain
 local player = Players.LocalPlayer
 
--- Desliga versoes antigas antes de iniciar a V8.9.23.
+-- Desliga versoes antigas antes de iniciar a V8.9.24.
 _G.TGAutoEat = (_G.TGAutoEat or 0) + 1
 _G.TGFeralDrinkSession = (_G.TGFeralDrinkSession or 0) + 1
-for _, name in ipairs({"TGFeralEatV2", "TGFeralEatV3", "TGFeralEatV4", "TGFeralEatV5", "TGFeralHuntV6", "TGFeralV7", "TGFeralV8", "TGFeralV81", "TGFeralV82", "TGFeralV83", "TGFeralV84", "TGFeralV85", "TGFeralV86", "TGFeralV87", "TGFeralV88", "TGFeralV89", "TGFeralV891", "TGFeralV892", "TGFeralV893", "TGFeralV894", "TGFeralV895", "TGFeralV896", "TGFeralV897", "TGFeralV898", "TGFeralV899", "TGFeralV8910", "TGFeralV8911", "TGFeralV8912", "TGFeralV8913", "TGFeralV8914", "TGFeralV8915", "TGFeralV8916", "TGFeralV8917", "TGFeralV8918", "TGFeralV8919", "TGFeralV8920", "TGFeralV8921", "TGFeralV8922", "TGFeralV8923", "TGAttackLab", "TGAttackLabV2"}) do
+for _, name in ipairs({"TGFeralEatV2", "TGFeralEatV3", "TGFeralEatV4", "TGFeralEatV5", "TGFeralHuntV6", "TGFeralV7", "TGFeralV8", "TGFeralV81", "TGFeralV82", "TGFeralV83", "TGFeralV84", "TGFeralV85", "TGFeralV86", "TGFeralV87", "TGFeralV88", "TGFeralV89", "TGFeralV891", "TGFeralV892", "TGFeralV893", "TGFeralV894", "TGFeralV895", "TGFeralV896", "TGFeralV897", "TGFeralV898", "TGFeralV899", "TGFeralV8910", "TGFeralV8911", "TGFeralV8912", "TGFeralV8913", "TGFeralV8914", "TGFeralV8915", "TGFeralV8916", "TGFeralV8917", "TGFeralV8918", "TGFeralV8919", "TGFeralV8920", "TGFeralV8921", "TGFeralV8922", "TGFeralV8923", "TGFeralV8924", "TGAttackLab", "TGAttackLabV2"}) do
     local old = _G[name]
     if type(old) == "table" and type(old.stop) == "function" then
         pcall(old.stop)
@@ -49,10 +49,12 @@ local CONFIG = {
     AuraAttackInterval = 0.8, -- uma presa por vez; sem rajada multi-alvo
     AuraBiteHitDelay = 0.12, -- intervalo do fluxo observado Bite -> BiteHit
     AuraFollowEnabled = true, -- so assume a movimentacao quando outras automacoes estao livres
-    AuraFollowDistance = 3.5, -- acompanha a presa a poucos studs, em vez de parar a 60
+    AuraFollowDistance = 2.7, -- segue de perto; nao fica parando a 3.5 studs
+    AuraPredictionSeconds = 0.22, -- antecipa a direcao de fuga da presa
+    AuraMaxLeadStuds = 7.5, -- limita a antecipacao para evitar ultrapassar
     AuraHitRange = 5.0, -- somente tenta BiteHit perto do NPC
-    AuraFollowMaxDistance = 110, -- solta presa que fugiu muito longe
-    AuraFollowTimeout = 28, -- reavalia fila de quests depois deste tempo
+    AuraFollowMaxDistance = 150, -- tenta recuperar alvo em fuga antes de desistir
+    AuraFollowTimeout = 65, -- acompanha presa por mais tempo antes de reavaliar quests
     AuraFollowSpeed = 68, -- respeita limitador do navegador seguro
     AutoFood = true,      -- Cacar e comer para sobrevivencia; tambem autoriza quests de caca
     AutoRespawn = false, -- jogo realiza renascimento natural; monitor apenas pausa e retoma
@@ -160,7 +162,7 @@ local CONFIG = {
 
     CarcassRadius = 2500,
     HuntRadius = 2500,
-    AttackDistance = 4.0, -- permanece mais proximo da presa; alcanca mordidas validas
+    AttackDistance = 3.0, -- caca normal: acompanha presa mais de perto
     AttackInterval = 0.65,
     FaceOffsetDeg = 0, -- se o modelo ainda olhar ao contrario, altere para 180
     TurnLerp = 0.78,   -- suavidade da rotacao (0 a 1)
@@ -194,8 +196,8 @@ local active = true
 local controlsEpoch = 0 -- interrompe operacoes antigas quando qualquer botao muda
 local destroyPanel = nil
 local stopQuestTabHooks = nil
-_G.TGFeralV8923Counter = (_G.TGFeralV8923Counter or 0) + 1
-local sessionID = _G.TGFeralV8923Counter
+_G.TGFeralV8924Counter = (_G.TGFeralV8924Counter or 0) + 1
+local sessionID = _G.TGFeralV8924Counter
 local movementConnection = nil
 local movementHum, movementRoot, savedWalkSpeed = nil, nil, nil
 local savedAutoRotate, savedAlign, savedAlignEnabled = nil, nil, nil
@@ -249,7 +251,7 @@ local function getThirst()
     return getPercent("Thirst") or getPercent("Hydration")
 end
 
--- === AUTO QUEST V8.9.23 ===
+-- === AUTO QUEST V8.9.24 ===
 -- O jogo controla a lista de quests e os progressos. Este bloco so le a GUI.
 -- A GUI mostra 3 quests por aba; guardamos as ultimas quests vistas de cada aba.
 -- Coordenadas de Alder Creek, Beaver Ponds e Elk Crossing foram verificadas no jogo.
@@ -558,7 +560,7 @@ local function faceTarget(root, target, immediate)
     end
 end
 
--- === V8.9.23: PROTECAO CONTRA AFOGAMENTO ===
+-- === V8.9.24: PROTECAO CONTRA AFOGAMENTO ===
 -- Nao modifica Terrain nem teleporta o personagem. O servidor ainda pode corrigir fisica.
 local waterParams = RaycastParams.new()
 waterParams.FilterType = Enum.RaycastFilterType.Include
@@ -804,7 +806,7 @@ local function stop()
     if safeRescueConnection then safeRescueConnection:Disconnect() end
 end
 
-_G.TGFeralV8923 = {
+_G.TGFeralV8924 = {
     stop = stop,
     config = CONFIG,
     isActive = function() return active end,
@@ -836,7 +838,7 @@ _G.TGFeralV8923 = {
     end
 }
 
--- === PAINEL TIGER / AMBER PREMIUM V8.9.23 ===
+-- === PAINEL TIGER / AMBER PREMIUM V8.9.24 ===
 -- Interface Roblox real (nao a imagem estatica). Logo usa emoji de tigre,
 -- evitando rbxassetid inventado; pode-se informar um ID proprio opcional abaixo.
 do
@@ -961,7 +963,7 @@ do
             },emblem)
         end
         textLabel(header,"THE GOAT",19,C.white,offset(75,15),offset(201,25),true)
-        textLabel(header,"FERAL  |  V8.9.23 NEON",10,C.lime,offset(76,41),offset(225,18),true)
+        textLabel(header,"FERAL  |  V8.9.24 NEON",10,C.lime,offset(76,41),offset(225,18),true)
         local mini=uiNew("TextButton", {
             Name="Minimize", Position=UDim2.new(1,-45,0,16),Size=offset(30,30),
             Text="−",Font=Enum.Font.GothamBold,TextSize=20,TextColor3=C.white,
@@ -1139,13 +1141,13 @@ do
                 task.wait(1.2)
             end
         end)
-        print("PAINEL ALIEN NEON THE GOAT V8.9.23: pronto | sem X | minimiza com -")
+        print("PAINEL ALIEN NEON THE GOAT V8.9.24: pronto | sem X | minimiza com -")
     else
         warn("PAINEL THE GOAT: PlayerGui nao encontrado")
     end
 end
 
--- Inicia o scanner somente depois que _G.TGFeralV8923 existe.
+-- Inicia o scanner somente depois que _G.TGFeralV8924 existe.
 -- Dessa forma, nunca tenta acessar getQuests em um objeto nil.
 task.spawn(function()
     while active do
@@ -1158,7 +1160,59 @@ task.spawn(function()
     end
 end)
 
-local function startMovement(hum, root, targetPosition, stopDistance, speedOverride, allowWater)
+-- === V8.9.24 | ALVO MOVEL ===
+-- Posicao prevista + estimativa da velocidade; nao teleporta o personagem.
+-- O controlador de movimento continua unico e o anti-queda permanece ativo.
+local function makePreyTracker(npc, ourRoot, leadSeconds, maxLead)
+    local lastPos = nil
+    local lastAt = 0
+    local sampledVelocity = Vector3.zero
+
+    local function readPrey()
+        if not npc or not npc.Parent then return ourRoot.Position, Vector3.zero end
+        local position = npc:GetPivot().Position
+        local now = os.clock()
+        if lastPos == nil then
+            lastPos, lastAt = position, now
+        elseif now - lastAt >= 0.11 then
+            local delta = horizontal(lastPos, position) / math.max(0.01, now-lastAt)
+            if delta.Magnitude <= 115 then
+                sampledVelocity = sampledVelocity:Lerp(delta, 0.6)
+            end
+            lastPos, lastAt = position, now
+        end
+        local body = npc.PrimaryPart or npc:FindFirstChildWhichIsA("BasePart", true)
+        if body and not body.Anchored then
+            local v = body.AssemblyLinearVelocity
+            local flat = Vector3.new(v.X, 0, v.Z)
+            if flat.Magnitude >= 1.5 and flat.Magnitude <= 115 then
+                sampledVelocity = sampledVelocity:Lerp(flat, 0.5)
+            end
+        end
+        return position, sampledVelocity
+    end
+
+    local function predictedPosition()
+        local p, velocity = readPrey()
+        local dist = horizontal(ourRoot.Position, p).Magnitude
+        local preview = math.min(leadSeconds, 0.10 + dist / 250)
+        local offset = velocity * preview
+        if offset.Magnitude > maxLead then offset = offset.Unit * maxLead end
+        return p + offset
+    end
+
+    local function getVelocity()
+        local _, v = readPrey()
+        return v
+    end
+    local function getActualPosition()
+        local p = readPrey()
+        return p
+    end
+    return predictedPosition, getVelocity, getActualPosition
+end
+
+local function startMovement(hum, root, targetPosition, stopDistance, speedOverride, allowWater, followOptions)
     stopMovement()
     movementHum, movementRoot = hum, root
     savedWalkSpeed = hum.WalkSpeed
@@ -1455,6 +1509,30 @@ local function startMovement(hum, root, targetPosition, stopDistance, speedOverr
         if distance <= stopDistance() then
             reached = true
             nav.failed = false
+            -- Presa em movimento: acompanhar a velocidade dela em vez de
+            -- parar completamente a cada frame e deixa-la escapar.
+            if followOptions and type(followOptions.velocity) == "function" then
+                local v = followOptions.velocity()
+                local flat = typeof(v)=="Vector3" and Vector3.new(v.X,0,v.Z) or Vector3.zero
+                if flat.Magnitude > 1.2 then
+                    local direction = flat.Unit
+                    local okStep = safeStep(from, direction, math.min(6, CONFIG.SafeLookAhead))
+                    if okStep then
+                        local chaseSpeed = math.min(flat.Magnitude, CONFIG.SafeMaxSpeed)
+                        hum.WalkSpeed = 19.5
+                        hum:Move(direction, false)
+                        local previous = root.AssemblyLinearVelocity
+                        root.AssemblyLinearVelocity = Vector3.new(
+                            direction.X*chaseSpeed, previous.Y, direction.Z*chaseSpeed)
+                        local look = type(followOptions.lookAt)=="function" and
+                            followOptions.lookAt() or goal
+                        faceTarget(root, look, false)
+                        nav.mode = "COLADO_NA_PRESA"
+                        nav.lastMoving, nav.lastProgress = now, now
+                        return
+                    end
+                end
+            end
             halt()
             return
         end
@@ -1521,6 +1599,18 @@ local function startMovement(hum, root, targetPosition, stopDistance, speedOverr
                 speed = math.min(speed, CONFIG.NavRecoverySpeed)
             elseif nav.mode == "CONTORNO" then
                 speed = math.min(speed, CONFIG.NavCornerSpeed)
+            elseif followOptions and type(followOptions.velocity)=="function" then
+                -- Perseguicao: nao frear para 14/27 se a presa ainda corre.
+                -- A velocidade maxima em terreno livre continua em 68.
+                local targetV = followOptions.velocity()
+                local pace = typeof(targetV)=="Vector3" and
+                    Vector3.new(targetV.X,0,targetV.Z).Magnitude or 0
+                local needed = math.min(CONFIG.SafeMaxSpeed, pace + 12)
+                if distance < 12 then
+                    speed = math.min(math.max(speed, needed, 35), CONFIG.SafeMaxSpeed)
+                elseif distance < 30 then
+                    speed = math.min(math.max(speed, needed, 48), CONFIG.SafeMaxSpeed)
+                end
             elseif distance < 12 then
                 speed = math.min(speed, 27)
             elseif distance < 30 then
@@ -1619,7 +1709,7 @@ local function pressRestKey(method, holdSeconds)
     return ok,err,method
 end
 
--- V8.9.23: bloqueia a automacao ate CONFIRMAR que o lobo levantou.
+-- V8.9.24: bloqueia a automacao ate CONFIRMAR que o lobo levantou.
 -- Se a animacao custom nao expuser estado, exige confirmacao visual manual.
 local restGuard = {
     blocked=false, character=nil, knownRestTracks={}, observedRest=false,
@@ -1763,13 +1853,13 @@ local function restGateReady()
         warn("AUTO QUEST REST: CAÇA/TRAVEL/FOOD/DRINK BLOQUEADOS; " ..
             "saida do descanso ainda nao confirmada | " .. tostring(restGuard.lastSource))
         warn("AUTO QUEST REST: se o lobo JA estiver em pe, use " ..
-            "_G.TGFeralV8923.confirmStanding() apos conferir visualmente")
+            "_G.TGFeralV8924.confirmStanding() apos conferir visualmente")
     end
     return false
 end
 
 -- Diagnostic API methods are registered only after rest helpers exist.
-_G.TGFeralV8923.getRestStatus = function()
+_G.TGFeralV8924.getRestStatus = function()
     local char,hum=actor()
     local resting,source=nil,"sem personagem"
     if char and hum then resting,source=detectResting(char,hum) end
@@ -1779,7 +1869,7 @@ _G.TGFeralV8923.getRestStatus = function()
         inputOK=restGuard.lastInputOK, progress=restGuard.lastProgress,
         failedStarts=restGuard.failedStarts, inputError=restGuard.lastInputError}
 end
-_G.TGFeralV8923.confirmStanding = function()
+_G.TGFeralV8924.confirmStanding = function()
     if not restGuard.blocked then return true end
     local char,hum=actor()
     if not char or not hum then return false end
@@ -2072,11 +2162,13 @@ local function chaseAndAttack(npc, questTitle, amberMode)
         if not ready then return false end
     end
     local actionEpoch = controlsEpoch
+    local preyGoal, preyVelocity, preyPosition = makePreyTracker(
+        npc, root, CONFIG.AuraPredictionSeconds, CONFIG.AuraMaxLeadStuds)
     local getDistance = startMovement(hum, root, function()
-        return foodPosition(npc)
+        return npc:GetAttribute("FeralDead") == true and foodPosition(npc) or preyGoal()
     end, function()
         return CONFIG.AttackDistance
-    end)
+    end, nil, false, {velocity=preyVelocity, lookAt=preyPosition})
     local started = os.clock()
     local lastMoved = started
     local lastPos = root.Position
@@ -2241,7 +2333,7 @@ safeRescueConnection=RunService.Heartbeat:Connect(function()
     end
 end)
 
--- === AUTO DRINK V8.9.23: MARGEM SEGURA, NAO VOXEL DE AGUA ===
+-- === AUTO DRINK V8.9.24: MARGEM SEGURA, NAO VOXEL DE AGUA ===
 -- Escolhe solo seco ao lado da agua e recusa lago abaixo de barranco.
 -- Nao reduz a protecao anti-queda nem altera o Terrain.
 local failedWater = {}
@@ -2592,7 +2684,7 @@ local function drinkOnce()
     end
 end
 
--- === AUTO QUEST DE BEBER EM LOCAL ESPECIFICO V8.9.23 ===
+-- === AUTO QUEST DE BEBER EM LOCAL ESPECIFICO V8.9.24 ===
 -- Usa pontos que o usuario testou fazendo a missao chegar a DONE.
 -- Nao confunde uma fonte qualquer com Alder Creek / Beaver Ponds.
 local namedDrinkRetryAt = {}
@@ -2755,7 +2847,7 @@ local function doNamedDrinkQuest(quest)
     return false
 end
 
--- === AUTO QUEST V8.9.23: LOCAIS, REST E TERRITORIO ===
+-- === AUTO QUEST V8.9.24: LOCAIS, REST E TERRITORIO ===
 local visitRetryAt, restRetryAt, territoryRetryAt={},{},{}
 
 local function namedVisitWaypoint(q)
@@ -2885,7 +2977,7 @@ local function visitNamedQuest(q)
     end
 end
 
--- V8.9.23: o log "R enviado" nunca foi prova de que o FERAL recebeu a tecla.
+-- V8.9.24: o log "R enviado" nunca foi prova de que o FERAL recebeu a tecla.
 -- Inicia por VIM, confirma o progresso real da quest e so entao trava as
 -- automacoes ate confirmar a saida do descanso. Sem progresso: cooldown.
 local function doRestQuest(q)
@@ -3336,7 +3428,7 @@ local function autoTravelQuest(requestedQuest)
     end
 end
 
-print("=== THE GOAT FERAL V8.9.23 AUTO QUEST | SESSAO " .. sessionID .. " ===")
+print("=== THE GOAT FERAL V8.9.24 AUTO QUEST | SESSAO " .. sessionID .. " ===")
 print("Fome:", tostring(getHunger()))
 print("Ativa <=", CONFIG.HungerStart, "| Para >=", CONFIG.HungerStop)
 print("Raio de caca:", CONFIG.HuntRadius, "| Raio de carcaça:", CONFIG.CarcassRadius)
@@ -3364,9 +3456,9 @@ print("TRAVESSIA AGUA:",CONFIG.WaterAllowCrossing and "LIBERADA" or "COM DESVIOS
     "| nado",CONFIG.WaterSwimSpeed,"studs/s | resgate apos",
     CONFIG.WaterRescueAfterStuckSeconds,"s SEM PROGRESSO")
 print("GET AMBER: caca normal, 1 NPC por vez | alcance", CONFIG.AttackDistance, "studs | intervalo", CONFIG.AttackInterval, "s")
-print("AUTO MOVE SEGURO V8.9.23: corrida ate", CONFIG.SafeMaxSpeed, "| desvio ate", CONFIG.NavCornerSpeed,
+print("AUTO MOVE SEGURO V8.9.24: corrida ate", CONFIG.SafeMaxSpeed, "| desvio ate", CONFIG.NavCornerSpeed,
     "| anti-queda e anti-trava | travessia da agua mantida")
-print("LOG NAV: print(_G.TGFeralV8923.getNavLog())")
+print("LOG NAV: print(_G.TGFeralV8924.getNavLog())")
 print("AUTO QUEST CACA: Catch a mouse e Hunt a herbivore incluidos com selecao sem bloqueio")
 print("MAPA: aliases MapSpots carregados; coordenadas capturadas sempre tem prioridade")
 print("AUTO QUEST LOCAL: Golden Plains", tostring(CONFIG.GoldenPlainsVisitPos))
@@ -3379,11 +3471,11 @@ print("SEGURANCA AGUA:",CONFIG.WaterSafetyEnabled,"| NPC AURA vinculada ao Auto 
 print("AUTO QUEST LOCAL: Elk Crossing confirmado", tostring(CONFIG.ElkCrossingVisitPos))
 print("AUTO QUEST AGUA: Drink at Elk Crossing (aguarda DONE)", tostring(CONFIG.ElkCrossingDrinkPos))
 print("AUTO QUEST: Rest for 90s (R) e Claim a territory habilitados")
-print("AUTO QUEST REST V8.9.23: tenta R via VIM, depois executor; exige progresso real na GUI")
+print("AUTO QUEST REST V8.9.24: tenta R via VIM, depois executor; exige progresso real na GUI")
 print("AUTO QUEST REST: se R nao for reconhecido, faz pausa e segue outras quests; nao entra em bloqueio falso")
-print("REST STATUS: print(_G.TGFeralV8923.getRestStatus())")
+print("REST STATUS: print(_G.TGFeralV8924.getRestStatus())")
 print("RESURREICAO: sem clique automatico | aguarda respawn natural do FERAL")
-print("RESPAWN NATURAL STATUS: print(_G.TGFeralV8923.getRespawnStatus())")
+print("RESPAWN NATURAL STATUS: print(_G.TGFeralV8924.getRespawnStatus())")
 print("STATUS: ATIVO | Painel Drink / Food / Quest / Get Amber | Speed", CONFIG.Speed)
 print("GET AMBER: " .. (CONFIG.GetAmber and "ON" or "OFF") ..
     " | independente de Auto Quest; exige HP alto, Food e Drink ON")
@@ -3394,7 +3486,7 @@ end
 local feeding = false
 local drinking = false
 
--- === AUTO RESPAWN V8.9.23 ===
+-- === AUTO RESPAWN V8.9.24 ===
 -- No Roblox do FERAL o botao verde RESPAWN eh gratuito.
 -- NUNCA clica REVIVE, CHANGE ANIMAL, 2x GROWTH ou qualquer compra.
 -- O nome da GUI nao foi identificado, portanto o alvo eh procurado pelo texto
@@ -3447,7 +3539,7 @@ local function locateRespawnUI()
     return best,deathTitle
 end
 
-_G.TGFeralV8923.getRespawnStatus=function()
+_G.TGFeralV8924.getRespawnStatus=function()
     local char,hum=actor()
     return {
         enabled=CONFIG.AutoRespawn,dead=respawnState.dead,
@@ -3523,7 +3615,7 @@ task.spawn(function()
     end
 end)
 
--- === THE GOAT V8.9.23 | NPC AURA V2 INTEGRADA AO AUTO QUEST ===
+-- === THE GOAT V8.9.24 | NPC AURA V2 INTEGRADA AO AUTO QUEST ===
 -- Nao cria outro painel e nao altera Chase, Auto Food ou Get Amber.
 -- ON/OFF vinculado a CONFIG.AutoQuest e CONFIG.AuraWithAutoQuest.
 -- Pausa durante caca normal, Get Amber, descanso, alimentacao, agua e morte.
@@ -3607,7 +3699,7 @@ local function auraNearest(root, folder)
     return closest,bestDistance
 end
 
-_G.TGFeralV8923.getAuraStatus = function()
+_G.TGFeralV8924.getAuraStatus = function()
     return {
         linkedToAutoQuest=true,
         autoQuest=CONFIG.AutoQuest,
@@ -3697,20 +3789,21 @@ local function followAuraNPC()
     auraStatus.following=true
     auraStatus.lastTarget=prey.Name
     auraStatus.state="PERSEGUINDO " .. prey.Name
-    setActivity("AutoQuest","AURA SEGUINDO NPC")
-    local getDistance=startMovement(hum,root,function()
-        return prey.Parent and prey:GetPivot().Position or root.Position
-    end,function()
+    setActivity("AutoQuest","🐺 AURA CAÇANDO")
+    local preyGoal, preyVelocity, preyPosition = makePreyTracker(
+        prey, root, CONFIG.AuraPredictionSeconds, CONFIG.AuraMaxLeadStuds)
+    local getDistance=startMovement(hum,root,preyGoal,function()
         return CONFIG.AuraFollowDistance
     end,function(d)
-        -- Perto da presa, evita ultrapassar e perder o alcance do ataque.
-        if d<8 then return 14 end
-        if d<20 then return 35 end
+        -- Manter ritmo para grudar na presa em movimento, sem limitar a 50.
+        if d<8 then return 42 end
+        if d<20 then return 55 end
         return CONFIG.AuraFollowSpeed
-    end)
+    end,false,{velocity=preyVelocity,lookAt=preyPosition})
     local hitsBefore=auraStatus.attempts
-    print("AUTO QUEST AURA: seguindo",prey.Name,
-        "| distancia inicial",math.floor(dist),"| objetivo",CONFIG.AuraFollowDistance)
+    print("AUTO QUEST AURA: seguindo COLADO",prey.Name,
+        "| distancia inicial",math.floor(dist),"| objetivo",CONFIG.AuraFollowDistance,
+        "| velocidade maxima",CONFIG.SafeMaxSpeed)
 
     while active and CONFIG.AutoQuest and CONFIG.AuraWithAutoQuest
         and controlsEpoch==epoch and player.Character==char
@@ -3721,6 +3814,8 @@ local function followAuraNPC()
         if hum:GetState()==Enum.HumanoidStateType.Swimming then break end
         local d=(root.Position-prey:GetPivot().Position).Magnitude
         auraStatus.followDistance=d
+        auraStatus.state = d <= CONFIG.AuraFollowDistance + 1.2
+            and "COLADO NA PRESA" or "PERSEGUINDO " .. prey.Name
         if d>CONFIG.AuraFollowMaxDistance then break end
         if d<=CONFIG.AuraHitRange and os.clock()-lastBite>=CONFIG.AuraAttackInterval then
             lastBite=os.clock()
@@ -3762,7 +3857,7 @@ local function followAuraNPC()
     return true
 end
 
-print("AUTO QUEST AURA V2: integrado ao THE GOAT | ativa quando Auto Quest = ON")
+print("AUTO QUEST AURA V8.9.24: acompanha presa em movimento | ativa com Auto Quest = ON")
 -- Tentativas da Aura sao APENAS envios ao remoto, nao abates ou dano confirmado.
 -- O contador original continua registrando apenas mortes confirmadas pelo jogo.
 
@@ -3985,24 +4080,24 @@ task.spawn(function()
             end -- fim do guard de morte / respawn
         end
     end)
-    if not ok then warn("Erro no V8.9.23, sessao " .. sessionID .. ":", err) end
+    if not ok then warn("Erro no V8.9.24, sessao " .. sessionID .. ":", err) end
     stop()
-    print("THE GOAT FERAL V8.9.23 SESSAO " .. sessionID .. " DESLIGADA")
+    print("THE GOAT FERAL V8.9.24 SESSAO " .. sessionID .. " DESLIGADA")
 end)
 
 -- Para desligar no console:
--- if _G.TGFeralV8923 then _G.TGFeralV8923.stop() end  -- encerrar tudo (nao ha X)
--- Status: print(_G.TGFeralV8923 and _G.TGFeralV8923.isActive())
--- Get Amber livre: _G.TGFeralV8923.config.GetAmber = true (prefira o botao do painel)
+-- if _G.TGFeralV8924 then _G.TGFeralV8924.stop() end  -- encerrar tudo (nao ha X)
+-- Status: print(_G.TGFeralV8924 and _G.TGFeralV8924.isActive())
+-- Get Amber livre: _G.TGFeralV8924.config.GetAmber = true (prefira o botao do painel)
 -- O Get Amber nao exige AutoQuest ON, nem quests DONE, nem leitura de QUICK/DAILY.
 -- Com ambos ON, Get Amber tem prioridade; desligue Get Amber para retomar as quests.
--- Abates: print(_G.TGFeralV8923.getAmberKills())
+-- Abates: print(_G.TGFeralV8924.getAmberKills())
 -- Get Amber usa apenas AmberSpecies (Deer, Otter, Fox).
--- Missoes: for _, q in ipairs(_G.TGFeralV8923.getQuests()) do print(q.title, q.progress, q.category) end
+-- Missoes: for _, q in ipairs(_G.TGFeralV8924.getQuests()) do print(q.title, q.progress, q.category) end
 
--- Descanso: print(_G.TGFeralV8923.getRestStatus())
+-- Descanso: print(_G.TGFeralV8924.getRestStatus())
 -- Se o jogo nao expuser animacao/estado, confirme VISUALMENTE o lobo em pe
--- e somente depois: print(_G.TGFeralV8923.confirmStanding())
+-- e somente depois: print(_G.TGFeralV8924.confirmStanding())
 
--- Aura status: print(_G.TGFeralV8923.getAuraStatus())
--- Aura acompanha CONFIG.AutoQuest; para desativar so a aura: _G.TGFeralV8923.config.AuraWithAutoQuest=false
+-- Aura status: print(_G.TGFeralV8924.getAuraStatus())
+-- Aura acompanha CONFIG.AutoQuest; para desativar so a aura: _G.TGFeralV8924.config.AuraWithAutoQuest=false
