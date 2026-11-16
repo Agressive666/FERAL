@@ -145,7 +145,7 @@ local CONFIG = {
     AttackVerticalTolerance = 6, -- diferenca de altura permitida entre os centros dos animais
     FaceOffsetDeg = 0, -- se o modelo ainda olhar ao contrario, altere para 180
     TurnLerp = 0.78,   -- suavidade da rotacao (0 a 1)
-    AimMouseAtTarget = true,
+    AimMouseAtTarget = false,
     UseLungeF = false, -- funcao preservada; desligada para reduzir risco de cair em penhascos
     LungeInterval = 9,
     MinHealthPercent = 20, -- abortar caca se a vida do lobo estiver muito baixa
@@ -1964,7 +1964,6 @@ local function clickAttack(npc, preferredMethod)
         elseif method == "VIM" then
             ok, err = pcall(function()
                 local vim = game:GetService("VirtualInputManager")
-                pcall(function() vim:SendMouseMoveEvent(x, y, game) end)
                 local pressed, pressError = pcall(function()
                     vim:SendMouseButtonEvent(x, y, 0, true, game, 0)
                     task.wait(0.11)
