@@ -1945,7 +1945,7 @@ local function clickAttack(npc, preferredMethod)
         end
     end
 
-    local methods = {"mouse1press", "VIM", "mouse1click"}
+    local methods = {"mouse1click", "mouse1press", "VIM"}
     local lastError = "sem metodo de clique"
     for offset = 0, 2 do
         local method = methods[((preferredMethod or 1) - 1 + offset) % 3 + 1]
@@ -2307,39 +2307,41 @@ local function chaseAndAttack(npc, questTitle, amberMode)
         end
         local navigationDistance = getDistance()
         local actualPosition = preyPosition()
-        -- O navegador usa antecipacao; somente a distancia REAL autoriza o clique.
-        -- Centros de animais de tamanhos diferentes podem ter alturas distintas.
+        -- A distancia regula a aproximacao; os cliques acompanham toda a perseguicao.
         local d = horizontal(root.Position, actualPosition).Magnitude
         local heightDifference = math.abs(root.Position.Y - actualPosition.Y)
-        if d <= CONFIG.AttackDistance and heightDifference <= CONFIG.AttackVerticalTolerance then
-            -- A mira deve ser atualizada ENQUANTO esta atacando, nao so no clique.
+        local inAttackRange = d <= CONFIG.AttackDistance
+            and heightDifference <= CONFIG.AttackVerticalTolerance
+        if inAttackRange then
             faceTarget(root, actualPosition, true)
             lastMoved = os.clock()
-            if os.clock() - lastAttack >= CONFIG.AttackInterval then
-                lastAttack = os.clock()
-                local preferredMethod = 1 + math.floor(attemptsSinceDamage / 4) % 3
-                local succeeded, method = clickAttack(npc, preferredMethod)
-                lastMethod = method
-                if succeeded then
-                    attacks += 1
+        end
+        -- Clique esquerdo repetido mesmo antes de alcancar a presa.
+        if os.clock() - lastAttack >= CONFIG.AttackInterval then
+            lastAttack = os.clock()
+            local preferredMethod = 1 + math.floor(attemptsSinceDamage / 4) % 3
+            local succeeded, method = clickAttack(npc, preferredMethod)
+            lastMethod = method
+            if succeeded then
+                attacks += 1
+                -- Fora do alcance, ausencia de dano nao indica falha de entrada.
+                if inAttackRange then
                     attemptsSinceDamage += 1
                     if attemptsSinceDamage % 4 == 0 then
                         warn("ATAQUE: 4 comandos sem dano observavel; alternando entrada",
                             "| metodo:", method, "| HP visivel:", tostring(npcHP))
                     end
-                else
-                    warn("Executor nao conseguiu enviar o ataque:", method)
-                    break
                 end
+            else
+                warn("Executor nao conseguiu enviar o ataque:", method)
+                break
             end
-            -- O video mostra a habilidade 'F Avanco'. Tenta-a com intervalo
-            -- apenas apos alguns cliques, quando nao ha dano confirmado.
-            if CONFIG.UseLungeF and attacks >= 4 and verifiedHits == 0
-                and os.clock() - lastLunge >= CONFIG.LungeInterval then
-                lastLunge = os.clock()
-                if pressF() then
-                    print("Tentativa de Avanco (F)")
-                end
+        end
+        if inAttackRange and CONFIG.UseLungeF and attacks >= 4 and verifiedHits == 0
+            and os.clock() - lastLunge >= CONFIG.LungeInterval then
+            lastLunge = os.clock()
+            if pressF() then
+                print("Tentativa de Avanco (F)")
             end
         end
         if os.clock() - lastMoved > CONFIG.StuckTimeout then
