@@ -1,11 +1,9 @@
--- THE GOAT FERAL V8.9.24 - AUTO QUEST + NPC AURA INTEGRADA
+-- THE GOAT FERAL V8.9.24 - AUTO QUEST
 -- BASE: V8.9.23, com as funcoes e melhorias preservadas da V8.9.21.
 -- NOVO: acompanhamento continuo de NPC movel + previsao curta de deslocamento.
 -- Mantem painel ET neon, coordenadas, nado e protecoes de descanso.
 -- Experimental: confirmacao de dano depende das mecanicas do jogo.
 -- Para Potassium ou executores Luau compativeis.
--- Apenas NPCs em Workspace.FeralNPCs; nao ataca jogadores.
--- Aura opcional vinculada ao Auto Quest; alvo unico por ciclo; apenas NPCs.
 -- A rotina de caca e o Get Amber originais nao foram substituidos.
 -- Get Amber usa a mesma caca normal de um unico NPC por vez.
 
@@ -25,16 +23,6 @@ for _, name in ipairs({"TGFeralEatV2", "TGFeralEatV3", "TGFeralEatV4", "TGFeralE
     end
 end
 
--- Encerra a aura avulsa antiga, se instalada, para evitar comandos duplicados.
-local auraEnv = (type(getgenv)=="function" and getgenv()) or _G
-if type(auraEnv.THE_GOAT_FERAL_AURA_V2_STOP)=="function" then
-    pcall(auraEnv.THE_GOAT_FERAL_AURA_V2_STOP)
-end
-if type(_G.THE_GOAT_NPC_AURA_STOP)=="function" then
-    pcall(_G.THE_GOAT_NPC_AURA_STOP)
-    _G.THE_GOAT_NPC_AURA_STOP=nil
-end
-
 -- Evita que o scanner antigo fique imprimindo as mesmas quests em paralelo.
 if _G.TGFeralQuestScanner and type(_G.TGFeralQuestScanner.stop) == "function" then
     pcall(_G.TGFeralQuestScanner.stop)
@@ -44,18 +32,6 @@ local CONFIG = {
     HungerStart = 80,       -- Comeca a procurar alimento (como no arquivo enviado)
     HungerStop = 95,        -- Para quando a fome recuperar
     AutoQuest = true,
-    AuraWithAutoQuest = true, -- aura acompanha o ON/OFF do Auto Quest automaticamente
-    AuraDetectRange = 60, -- alcance de DETECCAO / TENTATIVA da Aura V2
-    AuraAttackInterval = 0.8, -- uma presa por vez; sem rajada multi-alvo
-    AuraBiteHitDelay = 0.12, -- intervalo do fluxo observado Bite -> BiteHit
-    AuraFollowEnabled = true, -- so assume a movimentacao quando outras automacoes estao livres
-    AuraFollowDistance = 2.7, -- segue de perto; nao fica parando a 3.5 studs
-    AuraPredictionSeconds = 0.22, -- antecipa a direcao de fuga da presa
-    AuraMaxLeadStuds = 7.5, -- limita a antecipacao para evitar ultrapassar
-    AuraHitRange = 5.0, -- somente tenta BiteHit perto do NPC
-    AuraFollowMaxDistance = 150, -- tenta recuperar alvo em fuga antes de desistir
-    AuraFollowTimeout = 65, -- acompanha presa por mais tempo antes de reavaliar quests
-    AuraFollowSpeed = 68, -- respeita limitador do navegador seguro
     AutoFood = true,      -- Cacar e comer para sobrevivencia; tambem autoriza quests de caca
     AutoRespawn = false, -- jogo realiza renascimento natural; monitor apenas pausa e retoma
     -- GET AMBER: independente de Auto Quest e de quests pendentes; desligado por padrao.
@@ -985,7 +961,7 @@ do
         local controls={
             {key="AutoDrink",name="AUTO DRINK",desc="Encontrar agua e beber",symbol="💦"},
             {key="AutoFood",name="AUTO FOOD",desc="Cacar e se alimentar",symbol="🍖"},
-            {key="AutoQuest",name="AUTO QUEST",desc="Missoes + Aura NPC",symbol="🗺️"},
+            {key="AutoQuest",name="AUTO QUEST",desc="Missoes",symbol="🗺️"},
             {key="GetAmber",name="GET AMBER",desc="Farm independente das missoes",symbol="💰"}
         }
         local controlsUI={}
@@ -2163,7 +2139,7 @@ local function chaseAndAttack(npc, questTitle, amberMode)
     end
     local actionEpoch = controlsEpoch
     local preyGoal, preyVelocity, preyPosition = makePreyTracker(
-        npc, root, CONFIG.AuraPredictionSeconds, CONFIG.AuraMaxLeadStuds)
+        npc, root, 0.22, 7.5)
     local getDistance = startMovement(hum, root, function()
         return npc:GetAttribute("FeralDead") == true and foodPosition(npc) or preyGoal()
     end, function()
@@ -3467,7 +3443,7 @@ print("AUTO QUEST LOCAL: Go to Golden Waterhole [DONE confirmado]", tostring(CON
 print("AUTO QUEST LOCAL: Explore Granite Basin [DONE confirmado]", tostring(CONFIG.GraniteBasinVisitPos))
 print("AUTO DRINK MARGEM: buscando margem seca acessivel | desnivel max proximo:",CONFIG.WaterBankMaxNearbyDrop)
 print("AUTO QUEST AGUA: Golden Waterhole", tostring(CONFIG.GoldenWaterholeDrinkPos))
-print("SEGURANCA AGUA:",CONFIG.WaterSafetyEnabled,"| NPC AURA vinculada ao Auto Quest")
+print("SEGURANCA AGUA:",CONFIG.WaterSafetyEnabled)
 print("AUTO QUEST LOCAL: Elk Crossing confirmado", tostring(CONFIG.ElkCrossingVisitPos))
 print("AUTO QUEST AGUA: Drink at Elk Crossing (aguarda DONE)", tostring(CONFIG.ElkCrossingDrinkPos))
 print("AUTO QUEST: Rest for 90s (R) e Claim a territory habilitados")
@@ -3614,252 +3590,6 @@ task.spawn(function()
         task.wait(respawnState.dead and .65 or 1.2)
     end
 end)
-
--- === THE GOAT V8.9.24 | NPC AURA V2 INTEGRADA AO AUTO QUEST ===
--- Nao cria outro painel e nao altera Chase, Auto Food ou Get Amber.
--- ON/OFF vinculado a CONFIG.AutoQuest e CONFIG.AuraWithAutoQuest.
--- Pausa durante caca normal, Get Amber, descanso, alimentacao, agua e morte.
--- Preserva o fluxo da aura enviada: WolfActions Bite -> BiteHit.
-local auraStatus = {
-    attempts=0, lastTarget="nenhum", state="INICIANDO", lastError=nil,
-    following=false, followDistance=nil, confirmedKills=0,
-    lastSentAt=0
-}
-local auraLastErrorAt = -math.huge
-local auraWasOn = nil
-
-local function auraCanAttack()
-    if not active then return false,"SCRIPT DESLIGADO" end
-    if not CONFIG.AutoQuest or not CONFIG.AuraWithAutoQuest then
-        return false,"AUTO QUEST OFF"
-    end
-    if respawnState.dead then return false,"PERSONAGEM MORTO" end
-    local char, hum, root = actor()
-    if not char or not hum or not root or hum.Health <= 0 then
-        return false,"PERSONAGEM INDISPONIVEL"
-    end
-    if restGuard.blocked then return false,"DESCANSO BLOQUEADO" end
-    if auraStatus.following then return false,"SEGUINDO PRESA PELO CONTROLE PRINCIPAL" end
-    local resting = detectResting(char,hum)
-    if resting == true then return false,"LOBO DEITADO" end
-    if hum:GetState() == Enum.HumanoidStateType.Swimming then
-        return false,"NADANDO"
-    end
-    -- Prioridade original: Get Amber > Auto Quest; nao disputa o mesmo ataque.
-    if CONFIG.GetAmber then return false,"GET AMBER PRIORITARIO" end
-    if activity.AutoFood == "CACANDO NPC" or activity.AutoFood == "INDO COMER"
-        or activity.AutoFood == "SE ALIMENTANDO" then
-        return false,"AUTO FOOD OCUPADO"
-    end
-    if activity.AutoDrink == "BUSCANDO AGUA" or activity.AutoDrink == "BEBENDO NA QUEST"
-        or activity.AutoQuest == "MISSAO DE AGUA" then
-        return false,"AUTO DRINK OCUPADO"
-    end
-    if activity.AutoQuest == "CACA DE QUEST" or activity.AutoQuest == "DESCANSANDO"
-        or activity.AutoQuest == "AGUARDANDO LEVANTAR" then
-        return false,"AUTO QUEST OCUPADO"
-    end
-    return true,"ATIVO",root
-end
-
-local function auraValidNPC(npc, folder)
-    if not npc or not npc:IsA("Model") or not npc:IsDescendantOf(folder) then
-        return false
-    end
-    if Players:GetPlayerFromCharacter(npc) then return false end
-    if not npc:FindFirstChildWhichIsA("BasePart",true) then return false end
-    if npc:GetAttribute("FeralDead") == true or npc:GetAttribute("IsDead") == true
-        or npc:GetAttribute("Dead") == true or npc:GetAttribute("Alive") == false then
-        return false
-    end
-    local npcHum=npc:FindFirstChildOfClass("Humanoid")
-    if npcHum and npcHum.Health <= 0 then return false end
-    return true
-end
-
-local function auraNearest(root, folder)
-    local closest,bestDistance=nil,CONFIG.AuraDetectRange
-    -- O FERAL usa Models diretamente em Workspace.FeralNPCs.
-    -- Pastas internas sao suportadas sem vasculhar todas as partes do modelo.
-    local function scan(group)
-        for _,child in ipairs(group:GetChildren()) do
-            if child:IsA("Model") and auraValidNPC(child,folder) then
-                local p=child:GetPivot().Position
-                local d=(p-root.Position).Magnitude
-                if d<=bestDistance then
-                    bestDistance=d
-                    closest=child
-                end
-            elseif child:IsA("Folder") then
-                scan(child)
-            end
-        end
-    end
-    scan(folder)
-    return closest,bestDistance
-end
-
-_G.TGFeralV8924.getAuraStatus = function()
-    return {
-        linkedToAutoQuest=true,
-        autoQuest=CONFIG.AutoQuest,
-        enabled=active and CONFIG.AutoQuest and CONFIG.AuraWithAutoQuest,
-        radius=CONFIG.AuraDetectRange, interval=CONFIG.AuraAttackInterval,
-        state=auraStatus.state, attempts=auraStatus.attempts,
-        lastTarget=auraStatus.lastTarget, lastError=auraStatus.lastError,
-        following=auraStatus.following, followDistance=auraStatus.followDistance,
-        confirmedKills=auraStatus.confirmedKills,
-        lastSentAt=auraStatus.lastSentAt,
-        -- Atack attempts nao equivalem a dano confirmado pelo servidor.
-    }
-end
-
-task.spawn(function()
-    while active do
-        local permitted,reason,root=auraCanAttack()
-        local isOn=active and CONFIG.AutoQuest and CONFIG.AuraWithAutoQuest
-        if auraWasOn~=isOn then
-            auraWasOn=isOn
-            print("AUTO QUEST NPC AURA:",isOn and "ON" or "OFF",
-                "| raio",CONFIG.AuraDetectRange,"| sem painel separado")
-        end
-        auraStatus.state=reason
-        if permitted then
-            local folder=workspace:FindFirstChild("FeralNPCs")
-            local remote=game:GetService("ReplicatedStorage"):FindFirstChild("WolfActions")
-            if not folder or not remote or not remote:IsA("RemoteEvent") then
-                auraStatus.state="AGUARDANDO FeralNPCs / WolfActions"
-            else
-                local npc,distance=auraNearest(root,folder)
-                if npc then
-                    auraStatus.lastTarget=npc.Name
-                    if distance>CONFIG.AuraHitRange then
-                        auraStatus.state="ALVO A " .. math.floor(distance) .. " STUDS; " ..
-                            "AGUARDANDO APROXIMACAO"
-                    else
-                    local timestamp=workspace:GetServerTimeNow()
-                    local ok,err=pcall(function()
-                        remote:FireServer("Bite",timestamp)
-                        task.wait(CONFIG.AuraBiteHitDelay)
-                        local stillAllowed,_,currentRoot=auraCanAttack()
-                        if not stillAllowed or not npc.Parent or not auraValidNPC(npc,folder)
-                            or not currentRoot then return end
-                        if (npc:GetPivot().Position-currentRoot.Position).Magnitude
-                            > CONFIG.AuraHitRange then return end
-                        remote:FireServer("BiteHit",{m=npc,t=timestamp})
-                        auraStatus.attempts += 1
-                        auraStatus.lastSentAt=os.clock()
-                    end)
-                    if not ok then
-                        auraStatus.lastError=tostring(err)
-                        if os.clock()-auraLastErrorAt>8 then
-                            auraLastErrorAt=os.clock()
-                            warn("AUTO QUEST NPC AURA: erro em Bite/BiteHit:",err)
-                        end
-                    end
-                    end -- fora do alcance fisico: nao disparar ataque
-                else
-                    auraStatus.lastTarget="nenhum NPC no raio"
-                end
-            end
-        end
-        task.wait(math.max(0.3,CONFIG.AuraAttackInterval))
-    end
-end)
--- Persegue somente quando Auto Quest esta livre (nao invade outras rotinas).
--- Mantem o mesmo navegador seguro, sem teleporte, sem segundo Heartbeat
--- simultaneo e sem alterar o combate normal de Auto Food / Get Amber.
-local function followAuraNPC()
-    if not active or not CONFIG.AutoQuest or not CONFIG.AuraWithAutoQuest
-        or not CONFIG.AuraFollowEnabled or respawnState.dead or restGuard.blocked then
-        return false
-    end
-    local char,hum,root=actor()
-    local folder=workspace:FindFirstChild("FeralNPCs")
-    local remote=game:GetService("ReplicatedStorage"):FindFirstChild("WolfActions")
-    if not char or not hum or hum.Health<=0 or not root or not folder
-        or not remote or not remote:IsA("RemoteEvent") then return false end
-    if detectResting(char,hum)==true then return false end
-    local prey,dist=auraNearest(root,folder)
-    if not prey then return false end
-
-    local epoch=controlsEpoch
-    local started=os.clock()
-    local lastBite=-math.huge
-    auraStatus.following=true
-    auraStatus.lastTarget=prey.Name
-    auraStatus.state="PERSEGUINDO " .. prey.Name
-    setActivity("AutoQuest","🐺 AURA CAÇANDO")
-    local preyGoal, preyVelocity, preyPosition = makePreyTracker(
-        prey, root, CONFIG.AuraPredictionSeconds, CONFIG.AuraMaxLeadStuds)
-    local getDistance=startMovement(hum,root,preyGoal,function()
-        return CONFIG.AuraFollowDistance
-    end,function(d)
-        -- Manter ritmo para grudar na presa em movimento, sem limitar a 50.
-        if d<8 then return 42 end
-        if d<20 then return 55 end
-        return CONFIG.AuraFollowSpeed
-    end,false,{velocity=preyVelocity,lookAt=preyPosition})
-    local hitsBefore=auraStatus.attempts
-    print("AUTO QUEST AURA: seguindo COLADO",prey.Name,
-        "| distancia inicial",math.floor(dist),"| objetivo",CONFIG.AuraFollowDistance,
-        "| velocidade maxima",CONFIG.SafeMaxSpeed)
-
-    while active and CONFIG.AutoQuest and CONFIG.AuraWithAutoQuest
-        and controlsEpoch==epoch and player.Character==char
-        and hum.Health>0 and prey.Parent and auraValidNPC(prey,folder)
-        and os.clock()-started<CONFIG.AuraFollowTimeout do
-        task.wait(0.12)
-        if restGuard.blocked or detectResting(char,hum)==true or respawnState.dead then break end
-        if hum:GetState()==Enum.HumanoidStateType.Swimming then break end
-        local d=(root.Position-prey:GetPivot().Position).Magnitude
-        auraStatus.followDistance=d
-        auraStatus.state = d <= CONFIG.AuraFollowDistance + 1.2
-            and "COLADO NA PRESA" or "PERSEGUINDO " .. prey.Name
-        if d>CONFIG.AuraFollowMaxDistance then break end
-        if d<=CONFIG.AuraHitRange and os.clock()-lastBite>=CONFIG.AuraAttackInterval then
-            lastBite=os.clock()
-            faceTarget(root,prey:GetPivot().Position,true)
-            local stamp=workspace:GetServerTimeNow()
-            local ok,err=pcall(function()
-                remote:FireServer("Bite",stamp)
-                task.wait(CONFIG.AuraBiteHitDelay)
-                if not active or controlsEpoch~=epoch or respawnState.dead
-                    or not prey.Parent or not auraValidNPC(prey,folder) then return end
-                if (root.Position-prey:GetPivot().Position).Magnitude>CONFIG.AuraHitRange then return end
-                remote:FireServer("BiteHit",{m=prey,t=stamp})
-                auraStatus.attempts+=1
-                auraStatus.lastSentAt=os.clock()
-            end)
-            if not ok then
-                auraStatus.lastError=tostring(err)
-                warn("AUTO QUEST AURA: falha no ataque proximo:",err)
-            end
-        end
-        if prey:GetAttribute("FeralDead")==true then break end
-    end
-    stopMovement()
-    if prey.Parent and prey:GetAttribute("FeralDead")==true and not countedNPCKills[prey] then
-        countedNPCKills[prey]=true
-        totalConfirmedKills+=1
-        auraStatus.confirmedKills+=1
-        print("AUTO QUEST AURA: ABATE CONFIRMADO",prey.Name,
-            "| total sessao:",totalConfirmedKills)
-    end
-    auraStatus.following=false
-    auraStatus.followDistance=nil
-    auraStatus.state="EM ESPERA"
-    setActivity("AutoQuest",CONFIG.AutoQuest and "EM ESPERA" or "DESATIVADO")
-    if auraStatus.attempts==hitsBefore then
-        print("AUTO QUEST AURA: perseguiu",prey.Name,
-            "sem ataque confirmado; nao considera abate")
-    end
-    return true
-end
-
-print("AUTO QUEST AURA V8.9.24: acompanha presa em movimento | ativa com Auto Quest = ON")
--- Tentativas da Aura sao APENAS envios ao remoto, nao abates ou dano confirmado.
--- O contador original continua registrando apenas mortes confirmadas pelo jogo.
 
 -- Loop principal continua abaixo; mortes pausam todas as rotinas automaticamente.
 task.spawn(function()
@@ -4066,9 +3796,6 @@ task.spawn(function()
                                 setActivity("AutoQuest","TERRITORIO")
                                 doTerritoryQuest(territoryQuest)
                                 setActivity("AutoQuest","EM ESPERA")
-                            elseif CONFIG.AutoQuest and CONFIG.AuraWithAutoQuest
-                                and CONFIG.AuraFollowEnabled then
-                                if not followAuraNPC() then task.wait(1.5) end
                             else
                                 task.wait(1.5)
                             end
@@ -4099,5 +3826,3 @@ end)
 -- Se o jogo nao expuser animacao/estado, confirme VISUALMENTE o lobo em pe
 -- e somente depois: print(_G.TGFeralV8924.confirmStanding())
 
--- Aura status: print(_G.TGFeralV8924.getAuraStatus())
--- Aura acompanha CONFIG.AutoQuest; para desativar so a aura: _G.TGFeralV8924.config.AuraWithAutoQuest=false
