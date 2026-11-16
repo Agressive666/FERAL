@@ -29,7 +29,7 @@ if _G.TGFeralQuestScanner and type(_G.TGFeralQuestScanner.stop) == "function" th
 end
 
 local CONFIG = {
-    HungerStart = 80,       -- Comeca a procurar alimento (como no arquivo enviado)
+    HungerStart = 70,       -- Comeca a procurar alimento (como no arquivo enviado)
     HungerStop = 95,        -- Para quando a fome recuperar
     AutoQuest = true,
     AutoFood = true,      -- Cacar e comer para sobrevivencia; tambem autoriza quests de caca
