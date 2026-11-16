@@ -124,7 +124,7 @@ local CONFIG = {
     SafeNavigation = true,
     SafeMaxSpeed = 68,       -- limite geral de deslocamento
     HuntMaxSpeed = 78,       -- limite de perseguicao em terreno livre
-    HuntCatchUpBonus = 12,   -- velocidade extra sobre a presa na aproximacao
+    HuntCatchUpBonus = 15,   -- velocidade extra sobre a presa na aproximacao
     SafeLookAhead = 15,
     SafeMaxDrop = 4.5,
     SafeMaxClimb = 3.5,
@@ -142,6 +142,7 @@ local CONFIG = {
     HuntRadius = 2500,
     AttackDistance = 3.0, -- caca normal: acompanha presa mais de perto
     AttackInterval = 0.65,
+    AttackVerticalTolerance = 6, -- diferenca de altura permitida entre os centros dos animais
     FaceOffsetDeg = 0, -- se o modelo ainda olhar ao contrario, altere para 180
     TurnLerp = 0.78,   -- suavidade da rotacao (0 a 1)
     AimMouseAtTarget = true,
@@ -1925,60 +1926,60 @@ local function targetAimPosition(npc)
     return foodPosition(npc)
 end
 
--- V7 chamava mouse1click() na posicao ATUAL do cursor.
--- V8 prefere enviar o clique nas coordenadas do NPC na tela.
-local function clickAttack(npc)
+-- Alterna meios de entrada quando o clique e enviado sem dano observavel.
+-- Sucesso aqui confirma somente o envio do comando.
+local function clickAttack(npc, preferredMethod)
     local camera = workspace.CurrentCamera
     local screenPoint, onScreen
     if camera and CONFIG.AimMouseAtTarget then
         screenPoint, onScreen = camera:WorldToViewportPoint(targetAimPosition(npc))
     end
-
+    local mouse = game:GetService("UserInputService"):GetMouseLocation()
+    local x, y = math.floor(mouse.X), math.floor(mouse.Y)
     if onScreen and screenPoint.Z > 0 then
-        local x = math.floor(screenPoint.X)
-        local y = math.floor(screenPoint.Y)
-        local vimOK = pcall(function()
-            local vim = game:GetService("VirtualInputManager")
-            -- Movimento do mouse pode falhar em alguns executores.
-            pcall(function()
-                vim:SendMouseMoveEvent(x, y, game)
-            end)
-            vim:SendMouseButtonEvent(x, y, 0, true, game, 0)
-            task.wait(0.11)
-            vim:SendMouseButtonEvent(x, y, 0, false, game, 0)
-        end)
-        if vimOK then return true, "VIM na presa" end
-        pcall(function()
-            game:GetService("VirtualInputManager"):SendMouseButtonEvent(x, y, 0, false, game, 0)
-        end)
-
-        local moved = false
+        x, y = math.floor(screenPoint.X), math.floor(screenPoint.Y)
         if type(mousemoverel) == "function" then
-            moved = pcall(function()
-                local mouse = game:GetService("UserInputService"):GetMouseLocation()
-                mousemoverel(math.floor(x - mouse.X), math.floor(y - mouse.Y))
-            end)
+            pcall(mousemoverel, x - math.floor(mouse.X), y - math.floor(mouse.Y))
         elseif type(mousemoveabs) == "function" then
-            moved = pcall(function() mousemoveabs(x, y) end)
-        end
-        if moved and type(mouse1click) == "function" then
-            return pcall(mouse1click), "mouse1click mirado"
+            pcall(mousemoveabs, x, y)
         end
     end
 
-    if type(mouse1press) == "function" and type(mouse1release) == "function" then
-        local ok = pcall(function()
-            mouse1press()
-            task.wait(0.11)
-            mouse1release()
-        end)
-        if not ok then pcall(mouse1release) end
-        return ok, "mouse1press"
+    local methods = {"mouse1press", "VIM", "mouse1click"}
+    local lastError = "sem metodo de clique"
+    for offset = 0, 2 do
+        local method = methods[((preferredMethod or 1) - 1 + offset) % 3 + 1]
+        local ok, err = false, nil
+        if method == "mouse1press" and type(mouse1press) == "function"
+            and type(mouse1release) == "function" then
+            ok, err = pcall(function()
+                mouse1press()
+                task.wait(0.11)
+            end)
+            -- Libera mesmo quando o envio ou a espera falha.
+            local released, releaseError = pcall(mouse1release)
+            if not released then ok, err = false, releaseError end
+        elseif method == "VIM" then
+            ok, err = pcall(function()
+                local vim = game:GetService("VirtualInputManager")
+                pcall(function() vim:SendMouseMoveEvent(x, y, game) end)
+                local pressed, pressError = pcall(function()
+                    vim:SendMouseButtonEvent(x, y, 0, true, game, 0)
+                    task.wait(0.11)
+                end)
+                local released, releaseError = pcall(function()
+                    vim:SendMouseButtonEvent(x, y, 0, false, game, 0)
+                end)
+                if not pressed then error(pressError) end
+                if not released then error(releaseError) end
+            end)
+        elseif method == "mouse1click" and type(mouse1click) == "function" then
+            ok, err = pcall(mouse1click)
+        end
+        if ok then return true, method end
+        if err then lastError = method .. ": " .. tostring(err) end
     end
-    if type(mouse1click) == "function" then
-        return pcall(mouse1click), "mouse1click"
-    end
-    return false, "sem metodo de clique"
+    return false, lastError
 end
 
 local function pressF()
@@ -2216,6 +2217,7 @@ local function chaseAndAttack(npc, questTitle, amberMode)
     local lastLunge = 0
     local nextLog = 0
     local attacks = 0
+    local attemptsSinceDamage = 0
     local previousNPCHealth = npcHealth(npc)
     local verifiedHits = 0
     local lastMethod = "nenhum"
@@ -2294,6 +2296,7 @@ local function chaseAndAttack(npc, questTitle, amberMode)
         if npcHP ~= nil and previousNPCHealth ~= nil
             and npcHP < previousNPCHealth - 0.01 then
             verifiedHits += 1
+            attemptsSinceDamage = 0
             print("DANO NO NPC CONFIRMADO:", previousNPCHealth, "->", npcHP)
         end
         if npcHP ~= nil then previousNPCHealth = npcHP end
@@ -2305,17 +2308,25 @@ local function chaseAndAttack(npc, questTitle, amberMode)
         local navigationDistance = getDistance()
         local actualPosition = preyPosition()
         -- O navegador usa antecipacao; somente a distancia REAL autoriza o clique.
-        local d = (root.Position - actualPosition).Magnitude
-        if d <= CONFIG.AttackDistance then
+        -- Centros de animais de tamanhos diferentes podem ter alturas distintas.
+        local d = horizontal(root.Position, actualPosition).Magnitude
+        local heightDifference = math.abs(root.Position.Y - actualPosition.Y)
+        if d <= CONFIG.AttackDistance and heightDifference <= CONFIG.AttackVerticalTolerance then
             -- A mira deve ser atualizada ENQUANTO esta atacando, nao so no clique.
             faceTarget(root, actualPosition, true)
             lastMoved = os.clock()
             if os.clock() - lastAttack >= CONFIG.AttackInterval then
                 lastAttack = os.clock()
-                local succeeded, method = clickAttack(npc)
+                local preferredMethod = 1 + math.floor(attemptsSinceDamage / 4) % 3
+                local succeeded, method = clickAttack(npc, preferredMethod)
                 lastMethod = method
                 if succeeded then
                     attacks += 1
+                    attemptsSinceDamage += 1
+                    if attemptsSinceDamage % 4 == 0 then
+                        warn("ATAQUE: 4 comandos sem dano observavel; alternando entrada",
+                            "| metodo:", method, "| HP visivel:", tostring(npcHP))
+                    end
                 else
                     warn("Executor nao conseguiu enviar o ataque:", method)
                     break
@@ -2337,6 +2348,7 @@ local function chaseAndAttack(npc, questTitle, amberMode)
         end
         if os.clock() - nextLog >= 4 then
             print("Alvo:", npc.Name, "dist real:", math.floor(d * 10) / 10,
+                "| altura:", math.floor(heightDifference * 10) / 10,
                 "| dist navegacao:", math.floor(navigationDistance * 10) / 10,
                 "| cliques:", attacks, "| metodo:", lastMethod,
                 "| golpes confirmados:", verifiedHits,
