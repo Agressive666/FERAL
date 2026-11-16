@@ -29,7 +29,7 @@ if _G.TGFeralQuestScanner and type(_G.TGFeralQuestScanner.stop) == "function" th
 end
 
 local CONFIG = {
-    HungerStart = 70,       -- Comeca a procurar alimento (como no arquivo enviado)
+    HungerStart = 80,       -- Comeca a procurar alimento (como no arquivo enviado)
     HungerStop = 95,        -- Para quando a fome recuperar
     AutoQuest = true,
     AutoFood = true,      -- Cacar e comer para sobrevivencia; tambem autoriza quests de caca
@@ -45,7 +45,7 @@ local CONFIG = {
     AmberStartThirst = 90,
     AmberMinThirst = 75,
     AmberHuntTimeout = 90,
-    -- Get Amber: uma presa por vez, fluxo Bite/BiteHit perto do alvo; clique na aproximacao.
+    -- Get Amber: uma presa por vez, fluxo Bite/BiteHit perto do alvo.
     AmberPauseAfterDangerSeconds = 90, -- pausa de seguranca apos HP baixo
     -- AGUA: atravessa lagos normalmente. Resgate SO depois de 10s sem avancar.
     WaterSafetyEnabled = true,
@@ -2198,7 +2198,7 @@ local function attackAmberNPC(npc, character, actionEpoch)
     local folder = workspace:FindFirstChild("FeralNPCs")
     local remote = game:GetService("ReplicatedStorage"):FindFirstChild("WolfActions")
     if not remote or not remote:IsA("RemoteEvent") then
-        return nil, "WolfActions indisponivel; usando clique"
+        return nil, "WolfActions indisponivel"
     end
     local function canSend()
         if not active or controlsEpoch ~= actionEpoch or not CONFIG.GetAmber
@@ -2240,7 +2240,7 @@ local function attackAmberNPC(npc, character, actionEpoch)
     if not ok then
         runtimeStatus.lastAttackError = tostring(err)
         if not canSend() then return false, "ATAQUE CANCELADO" end
-        return nil, "Falha WolfActions; usando clique"
+        return nil, "Falha WolfActions"
     end
     if not sent then
         if skippedReason == "FORA DO ALCANCE" then
@@ -2378,16 +2378,14 @@ local function chaseAndAttack(npc, questTitle, amberMode)
             faceTarget(root, actualPosition, true)
             lastMoved = os.clock()
         end
-        -- Clique esquerdo repetido mesmo antes de alcancar a presa.
-        if os.clock() - lastAttack >= CONFIG.AttackInterval then
+        -- Get Amber aguarda o alcance sem controlar o mouse.
+        if (not amberMode or inAttackRange) and os.clock() - lastAttack >= CONFIG.AttackInterval then
             lastAttack = os.clock()
             local preferredMethod = 1 + math.floor(attemptsSinceDamage / 4) % 3
             local succeeded, method
-            if amberMode and inAttackRange then
+            if amberMode then
                 succeeded, method = attackAmberNPC(npc, char, actionEpoch)
-            end
-            -- Preserva o clique durante a aproximacao ou quando o evento nao esta disponivel.
-            if succeeded == nil then
+            else
                 succeeded, method = clickAttack(npc, preferredMethod)
             end
             lastMethod = method
