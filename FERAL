@@ -1935,6 +1935,7 @@ local function clickAttack(npc, preferredMethod)
     local screenPoint, onScreen
     if camera and CONFIG.AimMouseAtTarget then
         screenPoint, onScreen = camera:WorldToViewportPoint(targetAimPosition(npc))
+    end
 end
 local function pressF()
     if type(keypress) == "function" and type(keyrelease) == "function" then
