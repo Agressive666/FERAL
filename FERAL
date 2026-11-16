@@ -1935,52 +1935,6 @@ local function clickAttack(npc, preferredMethod)
     local screenPoint, onScreen
     if camera and CONFIG.AimMouseAtTarget then
         screenPoint, onScreen = camera:WorldToViewportPoint(targetAimPosition(npc))
-    end
-    local mouse = game:GetService("UserInputService"):GetMouseLocation()
-    local x, y = math.floor(mouse.X), math.floor(mouse.Y)
-    if onScreen and screenPoint.Z > 0 then
-        x, y = math.floor(screenPoint.X), math.floor(screenPoint.Y)
-        if type(mousemoverel) == "function" then
-            pcall(mousemoverel, x - math.floor(mouse.X), y - math.floor(mouse.Y))
-        elseif type(mousemoveabs) == "function" then
-            pcall(mousemoveabs, x, y)
-        end
-    end
-
-    local methods = {"mouse1click", "mouse1press", "VIM"}
-    local lastError = "sem metodo de clique"
-    for offset = 0, 2 do
-        local method = methods[((preferredMethod or 1) - 1 + offset) % 3 + 1]
-        local ok, err = false, nil
-        if method == "mouse1press" and type(mouse1press) == "function"
-            and type(mouse1release) == "function" then
-            ok, err = pcall(function()
-                mouse1press()
-                task.wait(0.11)
-            end)
-            -- Libera mesmo quando o envio ou a espera falha.
-            local released, releaseError = pcall(mouse1release)
-            if not released then ok, err = false, releaseError end
-        elseif method == "VIM" then
-            ok, err = pcall(function()
-                local vim = game:GetService("VirtualInputManager")
-                local pressed, pressError = pcall(function()
-                    vim:SendMouseButtonEvent(x, y, 0, true, game, 0)
-                    task.wait(0.11)
-                end)
-                local released, releaseError = pcall(function()
-                    vim:SendMouseButtonEvent(x, y, 0, false, game, 0)
-                end)
-                if not pressed then error(pressError) end
-                if not released then error(releaseError) end
-            end)
-        elseif method == "mouse1click" and type(mouse1click) == "function" then
-            ok, err = pcall(mouse1click)
-        end
-        if ok then return true, method end
-        if err then lastError = method .. ": " .. tostring(err) end
-    end
-    return false, lastError
 end
 
 local function pressF()
