@@ -122,7 +122,9 @@ local CONFIG = {
     QuestNamedDrinkSafetyThreshold = 35, -- se muito desidratado, primeiro procura agua perto
     Speed = 100, -- valor solicitado; controle seguro regula por tipo de terreno
     SafeNavigation = true,
-    SafeMaxSpeed = 68,       -- corrida em trajeto livre, em vez do antigo limite de 22
+    SafeMaxSpeed = 68,       -- limite geral de deslocamento
+    HuntMaxSpeed = 78,       -- limite de perseguicao em terreno livre
+    HuntCatchUpBonus = 12,   -- velocidade extra sobre a presa na aproximacao
     SafeLookAhead = 15,
     SafeMaxDrop = 4.5,
     SafeMaxClimb = 3.5,
@@ -1240,6 +1242,7 @@ local function startMovement(hum, root, targetPosition, stopDistance, speedOverr
         or hum.Health <= 0 then
         return function() return math.huge, false, true, "CANCELADO", "SEM PERSONAGEM ATIVO" end
     end
+    local speedLimit = followOptions and CONFIG.HuntMaxSpeed or CONFIG.SafeMaxSpeed
     stopMovement()
     movementHum, movementRoot = hum, root
     savedWalkSpeed = hum.WalkSpeed
@@ -1549,7 +1552,7 @@ local function startMovement(hum, root, targetPosition, stopDistance, speedOverr
                     local direction = flat.Unit
                     local okStep = safeStep(from, direction, math.min(6, CONFIG.SafeLookAhead))
                     if okStep then
-                        local chaseSpeed = math.min(flat.Magnitude, CONFIG.SafeMaxSpeed)
+                        local chaseSpeed = math.min(flat.Magnitude, speedLimit)
                         hum.WalkSpeed = 19.5
                         hum:Move(direction, false)
                         local previous = root.AssemblyLinearVelocity
@@ -1625,23 +1628,23 @@ local function startMovement(hum, root, targetPosition, stopDistance, speedOverr
             end
             -- Sprint apenas na trajetoria direta; desacelera ao chegar perto
             -- do animal e nos contornos, preservando os testes anti-queda.
-            speed = math.min(math.max(0, speed), CONFIG.SafeMaxSpeed)
+            speed = math.min(math.max(0, speed), speedLimit)
             if nav.mode == "RECUO_CURTO" then
                 speed = math.min(speed, CONFIG.NavRecoverySpeed)
             elseif nav.mode == "CONTORNO" then
                 speed = math.min(speed, CONFIG.NavCornerSpeed)
             elseif followOptions and type(followOptions.velocity)=="function" then
                 -- Perseguicao: nao frear para 14/27 se a presa ainda corre.
-                -- A velocidade maxima em terreno livre continua em 68.
+                -- Perseguicao tem limite proprio em terreno livre.
                 local targetV = followOptions.velocity()
                 local pace = typeof(targetV)=="Vector3" and
                     Vector3.new(targetV.X,0,targetV.Z).Magnitude or 0
-                local needed = math.min(CONFIG.SafeMaxSpeed, pace + 12)
+                local needed = math.min(speedLimit, pace + CONFIG.HuntCatchUpBonus)
                 if distance < 12 then
-                    -- Menor velocidade relativa na aproximacao final reduz ultrapassagens.
-                    speed = math.min(math.max(pace + 6, 12), CONFIG.SafeMaxSpeed)
+                    -- Mantem vantagem de velocidade para fechar a distancia.
+                    speed = math.min(math.max(pace + CONFIG.HuntCatchUpBonus, 20), speedLimit)
                 elseif distance < 30 then
-                    speed = math.min(math.max(speed, needed, 48), CONFIG.SafeMaxSpeed)
+                    speed = math.min(math.max(speed, needed, 48), speedLimit)
                 end
             elseif distance < 12 then
                 speed = math.min(speed, 27)
