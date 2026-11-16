@@ -402,17 +402,35 @@ end
 -- Se as abas forem trocadas rapidamente, o scanner periodico de 2.5 s pode
 -- perder uma delas. Encontra os botoes reais QUICK/DAILY e escaneia apos clique.
 local questTabConnections = {}
-local questTabHooked = setmetatable({}, {__mode = "k"})
+local questTabScreen = nil
+local questQuickButton, questDailyButton = nil, nil
 stopQuestTabHooks = function()
-    for _, connection in ipairs(questTabConnections) do
+    for _, connection in pairs(questTabConnections) do
         pcall(function() connection:Disconnect() end)
     end
     table.clear(questTabConnections)
+    questTabScreen = nil
+    questQuickButton, questDailyButton = nil, nil
 end
 local function questTabButtons()
     local gui = player:FindFirstChild("PlayerGui")
     local screen = gui and gui:FindFirstChild("FeralQuests")
+    if screen ~= questTabScreen then
+        stopQuestTabHooks()
+        questTabScreen = screen
+    end
     if not screen then return nil, nil end
+    -- Libera botoes removidos mesmo quando a tela principal continua existindo.
+    for button, connection in pairs(questTabConnections) do
+        if not button:IsDescendantOf(screen) then
+            connection:Disconnect()
+            questTabConnections[button] = nil
+        end
+    end
+    if questQuickButton and questQuickButton:IsDescendantOf(screen)
+        and questDailyButton and questDailyButton:IsDescendantOf(screen) then
+        return questQuickButton, questDailyButton
+    end
     local quick, daily
     for _, obj in ipairs(screen:GetDescendants()) do
         if obj:IsA("GuiButton") then
@@ -427,19 +445,21 @@ local function questTabButtons()
             if not daily and name:find("daily", 1, true) then daily = obj end
         end
     end
+    questQuickButton, questDailyButton = quick, daily
     return quick, daily
 end
 
 local function bindQuestTab(button)
-    if not button or questTabHooked[button] then return end
-    questTabHooked[button] = true
+    if not button or questTabConnections[button] then return end
+    local screen = questTabScreen
     local conn = button.Activated:Connect(function()
         -- Aguarda o jogo trocar a lista e salva exatamente o progresso visivel.
         task.delay(0.35, function()
-            if active and CONFIG.AutoQuest then pcall(questScan) end
+            if active and CONFIG.AutoQuest and screen == questTabScreen
+                and button:IsDescendantOf(screen) then pcall(questScan) end
         end)
     end)
-    table.insert(questTabConnections, conn)
+    questTabConnections[button] = conn
 end
 
 local function installQuestTabHooks()
