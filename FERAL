@@ -7,6 +7,7 @@
 -- A rotina de caca e o Get Amber originais nao foram substituidos.
 -- Get Amber persegue um NPC por vez e aguarda o ataque manual.
 
+local function iniciarTheGoat()
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local PathfindingService = game:GetService("PathfindingService")
@@ -145,7 +146,6 @@ local CONFIG = {
     AttackVerticalTolerance = 6, -- diferenca de altura permitida entre os centros dos animais
     FaceOffsetDeg = 0, -- se o modelo ainda olhar ao contrario, altere para 180
     TurnLerp = 0.78,   -- suavidade da rotacao (0 a 1)
-    AimMouseAtTarget = false,
     UseLungeF = false, -- funcao preservada; desligada para reduzir risco de cair em penhascos
     LungeInterval = 9,
     MinHealthPercent = 20, -- abortar caca se a vida do lobo estiver muito baixa
@@ -3384,7 +3384,7 @@ print("Fome:", tostring(getHunger()))
 print("Ativa <=", CONFIG.HungerStart, "| Para >=", CONFIG.HungerStop)
 print("Raio de caca:", CONFIG.HuntRadius, "| Raio de carcaça:", CONFIG.CarcassRadius)
 print("Velocidade:", CONFIG.Speed, "| FaceOffsetDeg:", CONFIG.FaceOffsetDeg)
-print("Ataque: mira na presa + corpo orientado; confirmar dano pelo log")
+print("Ataque manual | sem cliques automaticos")
 print("Thirst/Hydration:", tostring(getThirst()))
 print("Auto Drink: start", CONFIG.DrinkStart, "stop", CONFIG.DrinkStop, "raio de busca Terrain", CONFIG.WaterSearchRadius, "scan local", CONFIG.WaterLocalRadius, "speed", CONFIG.WaterMoveSpeed)
 print("AUTO QUEST: monitorando QUICK e DAILY | quest comida: Hunger <= " .. CONFIG.QuestEatStart)
@@ -3831,3 +3831,16 @@ end)
 -- Se o jogo nao expuser animacao/estado, confirme VISUALMENTE o lobo em pe
 -- e somente depois: print(_G.TGFeralV8924.confirmStanding())
 
+
+end
+
+print("THE GOAT: iniciando versao sem cliques")
+local ok, falha = xpcall(iniciarTheGoat, function(err)
+    if debug and type(debug.traceback) == "function" then
+        return debug.traceback(tostring(err), 2)
+    end
+    return tostring(err)
+end)
+if not ok then
+    warn("THE GOAT: falha na inicializacao | " .. tostring(falha))
+end
