@@ -1,4 +1,4 @@
--- THE GOAT FERAL V8.9.35 - AUTO QUEST | AURA INTEGRADA | FIX AUTO GRASS HIPPO
+-- THE GOAT FERAL V8.9.35B - AUTO QUEST | AURA INTEGRADA | FIX AUTO GRASS HIPPO
 -- CORRECAO: Auto Grass para Hippo e demais herbivoros; Great Falls, Aura V2 e demais rotinas preservadas.
 -- Preserva Auto Drink, descida automatica, Auto Food, Auto Quest e painel da V8.9.31.
 -- BASE: V8.9.23, com as funcoes e melhorias preservadas da V8.9.21.
@@ -8,6 +8,170 @@
 -- Para Potassium ou executores Luau compativeis.
 -- A rotina de caca e o Get Amber originais nao foram substituidos.
 -- Get Amber persegue um NPC por vez e aguarda o ataque manual.
+
+-- Motor de estamina em FUNCAO SEPARADA: evita ultrapassar o limite de locais no inicializador do THE GOAT.
+-- Experimental: o cliente pode nao controlar a estamina real mantida pelo servidor.
+local function criarMonitorStamina(player, CONFIG, isActive)
+-- === V8.9.35 | ESTAMINA INFINITA (TENTATIVA CLIENTE) ===
+-- O jogo FERAL pode controlar a stamina no servidor ou numa variavel local privada.
+-- Modifica SOMENTE atributos/NumberValue/IntValue com nomes reconhecidos de stamina;
+-- nunca altera Hunger/Thirst, velocidade, remotes nem valores de outros jogadores.
+-- Se o jogo nao expuser stamina, informa isso sem fingir que funcionou.
+local staminaNames = {
+    stamina=true, currentstamina=true, staminavalue=true,
+    sprintstamina=true, runstamina=true, staminacurrent=true,
+    staminapercent=true, staminapercentage=true
+}
+local staminaMaxNames = {"MaxStamina", "StaminaMax", "StaminaCapacity", "StaminaMaximum"}
+local staminaSources = {}
+local staminaCharacter = nil
+local staminaNextScanAt = 0
+local staminaLastMissingLog = 0
+local staminaStatus = {
+    sources=0, writes=0, last="NAO VERIFICADO", lastValue=nil,
+    target=nil, lastWriteAt=0, lastScanAt=0, error=nil
+}
+
+local function staminaTarget(holder, current)
+    local limit=nil
+    for _, key in ipairs(staminaMaxNames) do
+        local attr=holder:GetAttribute(key)
+        if type(attr)=="number" and attr>0 and attr==attr then
+            limit=attr
+            break
+        end
+        local obj=holder:FindFirstChild(key)
+        if obj and (obj:IsA("NumberValue") or obj:IsA("IntValue")) and obj.Value>0 then
+            limit=obj.Value
+            break
+        end
+    end
+    -- Escala 0..1 sem MaxStamina: preserva a escala; caso contrario usa ate 100.
+    if not limit then
+        if current>=0 and current<=1 then limit=1
+        else limit=math.max(CONFIG.StaminaFallbackMax,current) end
+    end
+    return math.clamp(limit, 0.001, 100000)
+end
+
+local function staminaScan()
+    local char=player.Character
+    staminaCharacter=char
+    staminaSources={}
+    staminaStatus.lastScanAt=os.clock()
+    local seen={}
+    local nodes=0
+    local function collect(inst, depth)
+        if not inst or seen[inst] or depth>4 or nodes>=1700 then return end
+        if inst:IsA("PlayerGui") or inst:IsA("Backpack") or inst:IsA("PlayerScripts") then return end
+        seen[inst]=true
+        nodes+=1
+        local ok, attrs=pcall(function() return inst:GetAttributes() end)
+        if ok then
+            for key,value in pairs(attrs) do
+                if staminaNames[tostring(key):lower():gsub("[^%a]","")]
+                    and type(value)=="number" and value==value then
+                    table.insert(staminaSources,{kind="attribute",inst=inst,key=key,
+                        target=staminaTarget(inst,value)})
+                end
+            end
+        end
+        if (inst:IsA("NumberValue") or inst:IsA("IntValue"))
+            and staminaNames[inst.Name:lower():gsub("[^%a]","")] then
+            table.insert(staminaSources,{kind="value",inst=inst,key="Value",
+                target=staminaTarget(inst.Parent or inst,inst.Value)})
+        end
+        if depth<4 then
+            for _,child in ipairs(inst:GetChildren()) do
+                collect(child,depth+1)
+                if nodes>=1700 then break end
+            end
+        end
+    end
+    if char then collect(char,0) end
+    collect(player,0)
+    staminaStatus.sources=#staminaSources
+    if #staminaSources==0 then
+        staminaStatus.last="SEM FONTE DE STAMINA ACESSIVEL"
+    else
+        local source=staminaSources[1]
+        staminaStatus.last="FONTE LOCAL: "..source.inst:GetFullName().." / "..source.key
+        print("THE GOAT STAMINA:",#staminaSources,"fonte(s) encontrada(s) |",
+            staminaStatus.last)
+    end
+    return #staminaSources
+end
+
+local function staminaTick()
+    if not CONFIG.InfiniteStamina then return end
+    local now=os.clock()
+    if player.Character~=staminaCharacter or now>=staminaNextScanAt then
+        staminaScan()
+        staminaNextScanAt=now+CONFIG.StaminaScanSeconds
+    end
+    if #staminaSources==0 then
+        if now-staminaLastMissingLog>30 then
+            warn("THE GOAT STAMINA: sem atributo/valor acessivel; estamina infinita nao confirmada")
+            staminaLastMissingLog=now
+        end
+        return
+    end
+    for _,source in ipairs(staminaSources) do
+        local inst=source.inst
+        if inst and inst.Parent then
+            local ok,value=pcall(function()
+                if source.kind=="attribute" then return inst:GetAttribute(source.key) end
+                return inst.Value
+            end)
+            if ok and type(value)=="number" and value==value then
+                local target=math.max(source.target,value)
+                staminaStatus.lastValue=value
+                staminaStatus.target=target
+                if value<target-0.001 then
+                    local writeOk,err=pcall(function()
+                        if source.kind=="attribute" then inst:SetAttribute(source.key,target)
+                        else inst.Value=target end
+                    end)
+                    if writeOk then
+                        staminaStatus.writes+=1
+                        staminaStatus.lastWriteAt=now
+                        staminaStatus.last="REPOSICAO LOCAL TENTADA: "..source.key
+                    else
+                        staminaStatus.error=tostring(err)
+                        staminaStatus.last="ERRO AO REPOR: "..source.key
+                    end
+                end
+            end
+        end
+    end
+end
+
+    local api = {}
+    api.getStatus = function()
+        return {enabled=CONFIG.InfiniteStamina, sources=staminaStatus.sources,
+            writes=staminaStatus.writes, last=staminaStatus.last,
+            lastValue=staminaStatus.lastValue, target=staminaStatus.target,
+            lastWriteAt=staminaStatus.lastWriteAt, lastScanAt=staminaStatus.lastScanAt,
+            error=staminaStatus.error}
+    end
+    api.scan = staminaScan
+    api.setEnabled = function(enabled)
+        CONFIG.InfiniteStamina=(enabled==true)
+        staminaNextScanAt=0
+        return CONFIG.InfiniteStamina
+    end
+    task.spawn(function()
+        while isActive() do
+            local ok,err=pcall(staminaTick)
+            if not ok then
+                staminaStatus.error=tostring(err)
+                staminaStatus.last="ERRO: "..tostring(err)
+            end
+            task.wait(math.max(0.08,CONFIG.StaminaTickSeconds))
+        end
+    end)
+    return api
+end
 
 local function iniciarTheGoat()
 local Players = game:GetService("Players")
@@ -289,139 +453,8 @@ local function actor()
     return character, hum, root
 end
 
--- === V8.9.35 | ESTAMINA INFINITA (TENTATIVA CLIENTE) ===
--- O jogo FERAL pode controlar a stamina no servidor ou numa variavel local privada.
--- Modifica SOMENTE atributos/NumberValue/IntValue com nomes reconhecidos de stamina;
--- nunca altera Hunger/Thirst, velocidade, remotes nem valores de outros jogadores.
--- Se o jogo nao expuser stamina, informa isso sem fingir que funcionou.
-local staminaNames = {
-    stamina=true, currentstamina=true, staminavalue=true,
-    sprintstamina=true, runstamina=true, staminacurrent=true,
-    staminapercent=true, staminapercentage=true
-}
-local staminaMaxNames = {"MaxStamina", "StaminaMax", "StaminaCapacity", "StaminaMaximum"}
-local staminaSources = {}
-local staminaCharacter = nil
-local staminaNextScanAt = 0
-local staminaLastMissingLog = 0
-local staminaStatus = {
-    sources=0, writes=0, last="NAO VERIFICADO", lastValue=nil,
-    target=nil, lastWriteAt=0, lastScanAt=0, error=nil
-}
-
-local function staminaTarget(holder, current)
-    local limit=nil
-    for _, key in ipairs(staminaMaxNames) do
-        local attr=holder:GetAttribute(key)
-        if type(attr)=="number" and attr>0 and attr==attr then
-            limit=attr
-            break
-        end
-        local obj=holder:FindFirstChild(key)
-        if obj and (obj:IsA("NumberValue") or obj:IsA("IntValue")) and obj.Value>0 then
-            limit=obj.Value
-            break
-        end
-    end
-    -- Escala 0..1 sem MaxStamina: preserva a escala; caso contrario usa ate 100.
-    if not limit then
-        if current>=0 and current<=1 then limit=1
-        else limit=math.max(CONFIG.StaminaFallbackMax,current) end
-    end
-    return math.clamp(limit, 0.001, 100000)
-end
-
-local function staminaScan()
-    local char=player.Character
-    staminaCharacter=char
-    staminaSources={}
-    staminaStatus.lastScanAt=os.clock()
-    local seen={}
-    local nodes=0
-    local function collect(inst, depth)
-        if not inst or seen[inst] or depth>4 or nodes>=1700 then return end
-        if inst:IsA("PlayerGui") or inst:IsA("Backpack") or inst:IsA("PlayerScripts") then return end
-        seen[inst]=true
-        nodes+=1
-        local ok, attrs=pcall(function() return inst:GetAttributes() end)
-        if ok then
-            for key,value in pairs(attrs) do
-                if staminaNames[tostring(key):lower():gsub("[^%a]","")]
-                    and type(value)=="number" and value==value then
-                    table.insert(staminaSources,{kind="attribute",inst=inst,key=key,
-                        target=staminaTarget(inst,value)})
-                end
-            end
-        end
-        if (inst:IsA("NumberValue") or inst:IsA("IntValue"))
-            and staminaNames[inst.Name:lower():gsub("[^%a]","")] then
-            table.insert(staminaSources,{kind="value",inst=inst,key="Value",
-                target=staminaTarget(inst.Parent or inst,inst.Value)})
-        end
-        if depth<4 then
-            for _,child in ipairs(inst:GetChildren()) do
-                collect(child,depth+1)
-                if nodes>=1700 then break end
-            end
-        end
-    end
-    if char then collect(char,0) end
-    collect(player,0)
-    staminaStatus.sources=#staminaSources
-    if #staminaSources==0 then
-        staminaStatus.last="SEM FONTE DE STAMINA ACESSIVEL"
-    else
-        local source=staminaSources[1]
-        staminaStatus.last="FONTE LOCAL: "..source.inst:GetFullName().." / "..source.key
-        print("THE GOAT STAMINA:",#staminaSources,"fonte(s) encontrada(s) |",
-            staminaStatus.last)
-    end
-    return #staminaSources
-end
-
-local function staminaTick()
-    if not CONFIG.InfiniteStamina then return end
-    local now=os.clock()
-    if player.Character~=staminaCharacter or now>=staminaNextScanAt then
-        staminaScan()
-        staminaNextScanAt=now+CONFIG.StaminaScanSeconds
-    end
-    if #staminaSources==0 then
-        if now-staminaLastMissingLog>30 then
-            warn("THE GOAT STAMINA: sem atributo/valor acessivel; estamina infinita nao confirmada")
-            staminaLastMissingLog=now
-        end
-        return
-    end
-    for _,source in ipairs(staminaSources) do
-        local inst=source.inst
-        if inst and inst.Parent then
-            local ok,value=pcall(function()
-                if source.kind=="attribute" then return inst:GetAttribute(source.key) end
-                return inst.Value
-            end)
-            if ok and type(value)=="number" and value==value then
-                local target=math.max(source.target,value)
-                staminaStatus.lastValue=value
-                staminaStatus.target=target
-                if value<target-0.001 then
-                    local writeOk,err=pcall(function()
-                        if source.kind=="attribute" then inst:SetAttribute(source.key,target)
-                        else inst.Value=target end
-                    end)
-                    if writeOk then
-                        staminaStatus.writes+=1
-                        staminaStatus.lastWriteAt=now
-                        staminaStatus.last="REPOSICAO LOCAL TENTADA: "..source.key
-                    else
-                        staminaStatus.error=tostring(err)
-                        staminaStatus.last="ERRO AO REPOR: "..source.key
-                    end
-                end
-            end
-        end
-    end
-end
+-- Apenas uma referencia local adicional dentro do inicializador principal.
+local staminaEngine = criarMonitorStamina(player, CONFIG, function() return active end)
 
 local function horizontal(a, b)
     return Vector3.new(b.X - a.X, 0, b.Z - a.Z)
@@ -1390,19 +1423,9 @@ _G.TGFeralV8935 = {
     stop = stop,
     config = CONFIG,
     isActive = function() return active end,
-    getStaminaStatus = function()
-        return {enabled=CONFIG.InfiniteStamina, sources=staminaStatus.sources,
-            writes=staminaStatus.writes, last=staminaStatus.last,
-            lastValue=staminaStatus.lastValue, target=staminaStatus.target,
-            lastWriteAt=staminaStatus.lastWriteAt, lastScanAt=staminaStatus.lastScanAt,
-            error=staminaStatus.error}
-    end,
-    scanStamina = staminaScan,
-    setInfiniteStamina = function(enabled)
-        CONFIG.InfiniteStamina=(enabled==true)
-        staminaNextScanAt=0
-        return CONFIG.InfiniteStamina
-    end,
+    getStaminaStatus = staminaEngine.getStatus,
+    scanStamina = staminaEngine.scan,
+    setInfiniteStamina = staminaEngine.setEnabled,
     getRuntimeStatus = function()
         return {
             active = active, recovering = runtimeStatus.recovering,
@@ -1464,15 +1487,6 @@ _G.TGFeralV8935 = {
         return {AutoDrink = activity.AutoDrink, AutoFood = activity.AutoFood, AutoGrass = activity.AutoGrass, AutoQuest = activity.AutoQuest, GetAmber = activity.GetAmber, AutoRespawn = activity.AutoRespawn, AutoAttack = activity.AutoAttack}
     end
 }
-
--- Rotina separada da navegacao/ataque para nao interferir no THE GOAT.
-task.spawn(function()
-    while active do
-        local ok,err=pcall(staminaTick)
-        if not ok then staminaStatus.error=tostring(err) end
-        task.wait(math.max(0.08,CONFIG.StaminaTickSeconds))
-    end
-end)
 
 -- === PAINEL TIGER / AMBER PREMIUM V8.9.35 ===
 -- Interface Roblox real (nao a imagem estatica). Logo usa emoji de tigre,
@@ -5649,7 +5663,7 @@ end)
 
 end
 
-print("THE GOAT: iniciando V8.9.35 | Aura V2 integrada | Auto Respawn")
+print("THE GOAT: iniciando V8.9.35B | Aura V2 integrada | Auto Respawn")
 local ok, falha = xpcall(iniciarTheGoat, function(err)
     if debug and type(debug.traceback) == "function" then
         return debug.traceback(tostring(err), 2)
@@ -5667,3 +5681,9 @@ end
 -- ESTAMINA (V8.9.35): print(_G.TGFeralV8935.getStaminaStatus().last)
 -- ESTAMINA ON/OFF: _G.TGFeralV8935.setInfiniteStamina(true/false)
 -- ATENCAO: alteracoes locais podem nao impedir gasto de stamina validado no servidor.
+
+-- SE O EXECUTOR INFORMAR "attempt to call a nil value" NA LINHA 1:
+-- Verifique a compilacao do loader antes de executar:
+-- local code=game:HttpGet("URL_RAW_DO_SCRIPT")
+-- local fn,err=loadstring(code)
+-- if not fn then warn("ERRO DE COMPILACAO:",err) else fn() end
