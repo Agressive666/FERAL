@@ -1,8 +1,6 @@
--- THE GOAT FERAL V8.9.32 - AUTO QUEST | CORRECAO CATEGORIA GREAT FALLS
--- CORRECAO: nomes de missoes classificados por palavras completas, evitando Great -> eat.
--- Preserva Auto Drink, descida automatica, Auto Food, Auto Quest e painel da V8.9.31.
+-- THE GOAT FERAL V8.9.29 - AUTO QUEST
 -- BASE: V8.9.23, com as funcoes e melhorias preservadas da V8.9.21.
--- REVISAO: descida autonoma por terreno ate margem de agua, sem saltos.
+-- REVISAO: estabilidade + ataque pela distancia real da presa, sem aura.
 -- Mantem painel ET neon, coordenadas, nado e protecoes de descanso.
 -- Experimental: confirmacao de dano depende das mecanicas do jogo.
 -- Para Potassium ou executores Luau compativeis.
@@ -27,10 +25,10 @@ for _, eventName in ipairs({"WindowFocused", "WindowFocusReleased"}) do
     end
 end
 
--- Desliga versoes antigas antes de iniciar a V8.9.32.
+-- Desliga versoes antigas antes de iniciar a V8.9.29.
 _G.TGAutoEat = (_G.TGAutoEat or 0) + 1
 _G.TGFeralDrinkSession = (_G.TGFeralDrinkSession or 0) + 1
-for _, name in ipairs({"TGFeralEatV2", "TGFeralEatV3", "TGFeralEatV4", "TGFeralEatV5", "TGFeralHuntV6", "TGFeralV7", "TGFeralV8", "TGFeralV81", "TGFeralV82", "TGFeralV83", "TGFeralV84", "TGFeralV85", "TGFeralV86", "TGFeralV87", "TGFeralV88", "TGFeralV89", "TGFeralV891", "TGFeralV892", "TGFeralV893", "TGFeralV894", "TGFeralV895", "TGFeralV896", "TGFeralV897", "TGFeralV898", "TGFeralV899", "TGFeralV8910", "TGFeralV8911", "TGFeralV8912", "TGFeralV8913", "TGFeralV8914", "TGFeralV8915", "TGFeralV8916", "TGFeralV8917", "TGFeralV8918", "TGFeralV8919", "TGFeralV8920", "TGFeralV8921", "TGFeralV8922", "TGFeralV8923", "TGFeralV8924", "TGFeralV8925", "TGFeralV8927", "TGFeralV8928", "TGFeralV8929", "TGFeralV8930", "TGFeralV8931", "TGFeralV8932", "TGAttackLab", "TGAttackLabV2"}) do
+for _, name in ipairs({"TGFeralEatV2", "TGFeralEatV3", "TGFeralEatV4", "TGFeralEatV5", "TGFeralHuntV6", "TGFeralV7", "TGFeralV8", "TGFeralV81", "TGFeralV82", "TGFeralV83", "TGFeralV84", "TGFeralV85", "TGFeralV86", "TGFeralV87", "TGFeralV88", "TGFeralV89", "TGFeralV891", "TGFeralV892", "TGFeralV893", "TGFeralV894", "TGFeralV895", "TGFeralV896", "TGFeralV897", "TGFeralV898", "TGFeralV899", "TGFeralV8910", "TGFeralV8911", "TGFeralV8912", "TGFeralV8913", "TGFeralV8914", "TGFeralV8915", "TGFeralV8916", "TGFeralV8917", "TGFeralV8918", "TGFeralV8919", "TGFeralV8920", "TGFeralV8921", "TGFeralV8922", "TGFeralV8923", "TGFeralV8924", "TGFeralV8925", "TGFeralV8927", "TGFeralV8928", "TGFeralV8929", "TGAttackLab", "TGAttackLabV2"}) do
     local old = _G[name]
     if type(old) == "table" and type(old.stop) == "function" then
         pcall(old.stop)
@@ -51,7 +49,7 @@ local CONFIG = {
     AutoGrass = false,
     GrassStart = 80,            -- comeca a pastar
     GrassStop = 95,             -- para quando alimentado
-    FeedRemoteFirst = true,     -- V8.9.32: WolfActions Feed (funciona sem simular E)
+    FeedRemoteFirst = true,     -- V8.9.29: WolfActions Feed (funciona sem simular E)
     FeedFallbackKey = true,    -- tecla E apenas se comando remoto nao puder ser enviado
     GrassSearchRadius = 220,   -- buscar patches proximos, sem scan global pesado
     GrassScanMaxParts = 1600,
@@ -68,7 +66,7 @@ local CONFIG = {
     GrassExploreScanInterval = 3.0,
     GrassExploreSpeed = 32,
     GrassExploreBlockedPause = 10,
-    AutoRespawn = false, -- jogo realiza renascimento natural; monitor apenas pausa e retoma
+    AutoRespawn = true, -- aciona somente o botao gratuito RESPAWN em morte confirmada
     -- GET AMBER: independente de Auto Quest e de quests pendentes; desligado por padrao.
     GetAmber = false,
     AmberHuntRadius = 850,
@@ -119,7 +117,6 @@ local CONFIG = {
     -- Beaver Ponds: coordenada confirmada apos o usuario beber e quest ficar DONE.
     BeaverPondsDrinkPos = Vector3.new(-487.36, 37.69, 139.52),
     -- Go to Beaver Ponds: separado de Drink at Beaver Ponds.
-    LunarCrestVisitPos = Vector3.new(-703.95, 201.83, -878.89), -- capturada 12 s apos DONE
     BeaverPondsVisitPos = Vector3.new(-585.19, 41.08, 167.18), -- coordenada informada; conferir DONE
     -- Coordenadas fornecidas pelo usuario; a conclusao deve ser verificada pela GUI.
     GoldenWaterholeVisitPos = Vector3.new(-227.86, 31.52, 112.10), -- GO TO: DONE confirmado
@@ -204,33 +201,21 @@ local CONFIG = {
     WaterBankSearchRadius = 14,  -- margem proxima da agua para tecla E ter alcance
     WaterFailedRadius = 105,     -- evitar repetir margem inacessivel do mesmo lago
     WaterFailedCooldown = 140,
-    WaterTravelTimeout = 240,
-    -- Busca uma descida por terra quando a agua esta abaixo de um barranco.
-    WaterDescentEnabled = true,
-    WaterDescentSearchRadius = 390, -- raio da malha ao redor do animal
-    WaterDescentGridStep = 9, -- espacamento entre celulas (studs)
-    WaterDescentMaxNodes = 4800, -- limite de nos expandidos por tentativa
-    WaterDescentTimeBudget = 8, -- segundos por tentativa
-    WaterDescentMaxCandidates = 8, -- margens da mesma fonte examinadas
-    WaterDescentSpeed = 15, -- mais lento nas curvas e inclinacoes
-    WaterDescentLookAhead = 5, -- conserva o sensor anti-queda ativo
-    WaterDescentMaxReplans = 2 -- tenta nova rota apos obstaculo/travamento
+    WaterTravelTimeout = 240
 }
 
 local active = true
 local controlsEpoch = 0 -- interrompe operacoes antigas quando qualquer botao muda
 local destroyPanel = nil
 local stopQuestTabHooks = nil
-_G.TGFeralV8932Counter = (_G.TGFeralV8932Counter or 0) + 1
-local sessionID = _G.TGFeralV8932Counter
+_G.TGFeralV8928Counter = (_G.TGFeralV8928Counter or 0) + 1
+local sessionID = _G.TGFeralV8928Counter
 local movementConnection = nil
 local movementHum, movementRoot, savedWalkSpeed = nil, nil, nil
 local savedAutoRotate, savedAlign, savedAlignEnabled = nil, nil, nil
 local failedUntil = setmetatable({}, {__mode = "k"})
 local nextDrinkTry = 0
 local navLog = {} -- historico compacto (ultimas 60 mensagens)
-local descentStats={attempts=0, successes=0, last="NAO TESTADO",
-    nodes=0, waypoints=0, time=0, water=nil}
 local amberKills = 0
 local totalConfirmedKills = 0
 local countedNPCKills = setmetatable({}, {__mode = "k"})
@@ -318,7 +303,7 @@ local function getThirst()
     return getPercent("Thirst") or getPercent("Hydration")
 end
 
--- === AUTO QUEST V8.9.32 ===
+-- === AUTO QUEST V8.9.29 ===
 -- O jogo controla a lista de quests e os progressos. Este bloco so le a GUI.
 -- A GUI mostra 3 quests por aba; guardamos as ultimas quests vistas de cada aba.
 -- Coordenadas de Alder Creek, Beaver Ponds e Elk Crossing foram verificadas no jogo.
@@ -388,17 +373,11 @@ local function questCategory(name)
         or t:find("grass patch", 1, true) or t:find("grass patches", 1, true) then
         return "PASTO"
     end
-    -- Prioriza verbos completos e evita "eat" dentro de "Great".
-    -- Ex.: Drink at Great Falls deve ser AGUA, nao COMIDA.
-    -- Tambem evita classificar Go to Golden Waterhole como AGUA por causa de Waterhole.
-    local words = " " .. t:gsub("[^%w]+", " ") .. " "
-    if words:find(" drink ", 1, true) or words:find(" water ", 1, true)
-        or words:find(" beber ", 1, true) then
-        return "AGUA"
-    end
-    if words:find(" eat ", 1, true) or words:find(" meat ", 1, true)
-        or words:find(" comer ", 1, true) then
+    if t:find("eat", 1, true) or t:find("meat", 1, true) or t:find("comer", 1, true) then
         return "COMIDA"
+    end
+    if t:find("drink", 1, true) or t:find("water", 1, true) or t:find("beber", 1, true) then
+        return "AGUA"
     end
     if t:find("hunt", 1, true) or t:find("kill", 1, true) or t:find("cacar", 1, true) then
         return "CACA"
@@ -427,112 +406,11 @@ local function questIsDone(progress)
     return a ~= nil and b ~= nil and tonumber(b) > 0 and tonumber(a) >= tonumber(b)
 end
 
--- V8.9.32: a lista pode ter wrappers adicionais ou mudar de lugar na GUI.
--- Procura os cards de quest de forma limitada e reutiliza o parser original.
-local questScanSource = "INICIANDO"
-local questScanAt = 0
-local questScanCount = 0
-local function questCardsForScan()
-    local gui = player:FindFirstChild("PlayerGui")
-    local list = questList()
-    local cards = {}
-    local seen = {}
-    local function collect(parent)
-        if not parent then return end
-        local function tryAdd(obj)
-            if obj.Name == "Quest" and obj:FindFirstChild("Card")
-                and not seen[obj] then
-                seen[obj] = true
-                table.insert(cards, obj)
-            end
-        end
-        for _, child in ipairs(parent:GetChildren()) do tryAdd(child) end
-        if #cards == 0 then
-            for _, child in ipairs(parent:GetDescendants()) do tryAdd(child) end
-        end
-    end
-    collect(list)
-    if #cards > 0 then return cards, "LISTA ORIGINAL" end
-    local screen = gui and gui:FindFirstChild("FeralQuests")
-    if screen and screen ~= list then collect(screen) end
-    if #cards > 0 then return cards, "GUI FERALQUESTS" end
-    if gui then collect(gui) end
-    return cards, #cards > 0 and "PLAYERGUI FALLBACK" or "SEM CARDS"
-end
-
--- Fallback estrito: identifica textos de missao de bebida visiveis e tenta
--- ler progresso no mesmo cartao, caso o jogo nao crie cards chamados 'Quest'.
-local function questNamedDrinkFromVisibleGUI()
-    local gui = player:FindFirstChild("PlayerGui")
-    if not gui then return {} end
-    local results, seen = {}, {}
-    local allowedPlaces = {"alder creek", "beaver ponds", "dead lagoon",
-        "great falls", "granite basin", "golden waterhole", "elk crossing"}
-    local function visible(obj)
-        local node = obj
-        while node and node ~= gui do
-            if node:IsA("ScreenGui") and not node.Enabled then return false end
-            if node:IsA("GuiObject") and not node.Visible then return false end
-            node = node.Parent
-        end
-        return true
-    end
-    for _,obj in ipairs(gui:GetDescendants()) do
-        if (obj:IsA("TextLabel") or obj:IsA("TextButton")) and visible(obj) then
-            local label = questClean(obj.Text)
-            local low = label:lower()
-            if low:find("drink at ", 1, true) == 1 and not seen[label] then
-                local supported = false
-                for _,place in ipairs(allowedPlaces) do
-                    if low:find("drink at " .. place, 1, true) == 1 then
-                        supported = true
-                        break
-                    end
-                end
-                if supported then
-                    local progress = nil
-                    local ancestor = obj.Parent
-                    for depth=1,3 do
-                        if not ancestor or ancestor == gui then break end
-                        local rowTitleCount = 0
-                        local foundProgress = nil
-                        for _,child in ipairs(ancestor:GetDescendants()) do
-                            if child:IsA("TextLabel") or child:IsA("TextButton") then
-                                local t = questClean(child.Text)
-                                if t:lower():find("drink at ",1,true)==1 then
-                                    rowTitleCount += 1
-                                end
-                                if t:match("%d+%s*/%s*%d+") or t:upper() == "DONE" then
-                                    foundProgress = t
-                                end
-                            end
-                        end
-                        if rowTitleCount == 1 and foundProgress then
-                            progress = foundProgress
-                            break
-                        end
-                        ancestor = ancestor.Parent
-                    end
-                    if progress then
-                        seen[label] = true
-                        table.insert(results, {name=label,progress=progress})
-                    end
-                end
-            end
-        end
-    end
-    return results
-end
-
 local function questScan()
-    local cards, source = questCardsForScan()
-    local fallback = questNamedDrinkFromVisibleGUI()
-    questScanSource = source
-    questScanAt = os.clock()
-    questScanCount = #cards + #fallback
-    if questScanCount == 0 then
+    local list = questList()
+    if not list then
         if os.clock() - lastQuestWarning > 25 then
-            warn("AUTO QUEST: nao encontrou cards na GUI; abra QUICK/DAILY uma vez")
+            print("AUTO QUEST: abra QUICK e DAILY uma vez para registrar as quests")
             lastQuestWarning = os.clock()
         end
         return
@@ -540,24 +418,11 @@ local function questScan()
     local signature = {}
     local count = 0
     local newlyDetected = 0
-    -- Usa o mesmo processamento de quest anterior para manter todas as regras.
-    local entries = {}
-    for _,card in ipairs(cards) do
-        local name = questTitle(card)
-        if name and name ~= "" then
-            table.insert(entries,{name=name,progress=questProgress(card)})
-        end
-    end
-    for _,entry in ipairs(fallback) do
-        local duplicate = false
-        for _,existing in ipairs(entries) do
-            if existing.name == entry.name then duplicate = true; break end
-        end
-        if not duplicate then table.insert(entries,entry) end
-    end
-    for _,entry in ipairs(entries) do
-        local name,progress = entry.name,entry.progress
-        if name and name ~= "" then
+    for _, quest in ipairs(list:GetChildren()) do
+        if quest.Name == "Quest" then
+            local name = questTitle(quest)
+            if name and name ~= "" then
+                local progress = questProgress(quest)
                 local old = questSeen[name]
                 if not old then newlyDetected += 1 end
                 local done = questIsDone(progress)
@@ -586,6 +451,7 @@ local function questScan()
                 end
             end
         end
+    end
     table.sort(signature)
     local sig = table.concat(signature, " || ")
     -- Usa o mesmo prazo da consulta para liberar registros realmente vencidos.
@@ -782,7 +648,7 @@ local function faceTarget(root, target, immediate)
     end
 end
 
--- === V8.9.32: PROTECAO CONTRA AFOGAMENTO ===
+-- === V8.9.29: PROTECAO CONTRA AFOGAMENTO ===
 -- Nao modifica Terrain nem teleporta o personagem. O servidor ainda pode corrigir fisica.
 local waterParams = RaycastParams.new()
 waterParams.FilterType = Enum.RaycastFilterType.Include
@@ -1035,7 +901,7 @@ local function stop()
     end
 end
 
-_G.TGFeralV8932 = {
+_G.TGFeralV8928 = {
     stop = stop,
     config = CONFIG,
     isActive = function() return active end,
@@ -1053,21 +919,10 @@ _G.TGFeralV8932 = {
     sessionID = sessionID,
     getQuests = currentQuests,
     scanQuests = questScan,
-    getQuestScannerStatus = function()
-        return {source=questScanSource, cards=questScanCount,
-            secondsAgo=questScanAt > 0 and os.clock()-questScanAt or -1,
-            known=#currentQuests()}
-    end,
     getAmberKills = function() return amberKills end,
     getTotalKills = function() return totalConfirmedKills end,
     getKillStats = function() return {farm = amberKills, total = totalConfirmedKills} end,
     getNavLog = function() return table.concat(navLog, "\n") end,
-    getDescentStatus = function()
-        return {enabled=CONFIG.WaterDescentEnabled, attempts=descentStats.attempts,
-            successes=descentStats.successes, last=descentStats.last,
-            nodes=descentStats.nodes, waypoints=descentStats.waypoints,
-            time=descentStats.time, water=descentStats.water}
-    end,
     getMapAliases = function() return MAP_ALIASES end,
     amberCanRun = function() return amberReady(true) end,
     swimStatus = function()
@@ -1089,7 +944,10 @@ _G.TGFeralV8932 = {
     end
 }
 
--- === PAINEL TIGER / AMBER PREMIUM V8.9.32 ===
+-- Mantem tambem alias V8928 para comandos antigos que usuario ja usa.
+_G.TGFeralV8929 = _G.TGFeralV8928
+
+-- === PAINEL TIGER / AMBER PREMIUM V8.9.29 ===
 -- Interface Roblox real (nao a imagem estatica). Logo usa emoji de tigre,
 -- evitando rbxassetid inventado; pode-se informar um ID proprio opcional abaixo.
 do
@@ -1214,7 +1072,7 @@ do
             },emblem)
         end
         textLabel(header,"THE GOAT",19,C.white,offset(75,15),offset(201,25),true)
-        textLabel(header,"FERAL  |  V8.9.32 NEON",10,C.lime,offset(76,41),offset(225,18),true)
+        textLabel(header,"FERAL  |  V8.9.29 NEON",10,C.lime,offset(76,41),offset(225,18),true)
         local mini=uiNew("TextButton", {
             Name="Minimize", Position=UDim2.new(1,-45,0,16),Size=offset(30,30),
             Text="−",Font=Enum.Font.GothamBold,TextSize=20,TextColor3=C.white,
@@ -1299,7 +1157,7 @@ do
         local waterStatus=textLabel(body,"WATER --%",11,C.white,offset(157,422),offset(109,22),true)
         local online=textLabel(body,"● ATIVO",11,C.lime,offset(270,422),offset(78,22),true)
         local amberCountLabel=textLabel(body,"GET AMBER  |  FARM 0  |  TOTAL 0",10,C.lime,offset(17,450),offset(317,19),true)
-        textLabel(body,"Arraste pelo topo  |  - minimiza",9,C.muted,offset(17,477),offset(317,14),false)
+        textLabel(body,"AUTO RESPAWN ON  |  Arraste pelo topo  |  - minimiza",9,C.muted,offset(17,477),offset(317,14),false)
 
         local function animate(inst,props)
             Tween:Create(inst,TweenInfo.new(.15,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),props):Play()
@@ -1394,13 +1252,13 @@ do
                 task.wait(1.2)
             end
         end)
-        print("PAINEL ALIEN NEON THE GOAT V8.9.32: pronto | sem X | minimiza com -")
+        print("PAINEL ALIEN NEON THE GOAT V8.9.29: pronto | sem X | minimiza com -")
     else
         warn("PAINEL THE GOAT: PlayerGui nao encontrado")
     end
 end
 
--- Inicia o scanner somente depois que _G.TGFeralV8932 existe.
+-- Inicia o scanner somente depois que _G.TGFeralV8928 existe.
 -- Dessa forma, nunca tenta acessar getQuests em um objeto nil.
 task.spawn(function()
     while active do
@@ -1413,7 +1271,7 @@ task.spawn(function()
     end
 end)
 
--- === V8.9.32 | ALVO MOVEL ===
+-- === V8.9.29 | ALVO MOVEL ===
 -- Posicao prevista + estimativa da velocidade; nao teleporta o personagem.
 -- O controlador de movimento continua unico e o anti-queda permanece ativo.
 local function makePreyTracker(npc, ourRoot, leadSeconds, maxLead)
@@ -1468,7 +1326,7 @@ local function makePreyTracker(npc, ourRoot, leadSeconds, maxLead)
     return predictedPosition, getVelocity, getActualPosition
 end
 
-local function startMovement(hum, root, targetPosition, stopDistance, speedOverride, allowWater, followOptions, travelOptions)
+local function startMovement(hum, root, targetPosition, stopDistance, speedOverride, allowWater, followOptions)
     if not active or not hum or not root or not hum.Parent or not root.Parent
         or hum.Health <= 0 then
         return function() return math.huge, false, true, "CANCELADO", "SEM PERSONAGEM ATIVO" end
@@ -1552,8 +1410,7 @@ local function startMovement(hum, root, targetPosition, stopDistance, speedOverr
             if not ground then return false, "SEM_SOLO_FRENTE" end
             local diff = ground.Position.Y - prevY
             if ground.Material == Enum.Material.Water then
-                if (travelOptions and travelOptions.dryOnly)
-                    or not (CONFIG.WaterAllowCrossing or allowWater) then
+                if not (CONFIG.WaterAllowCrossing or allowWater) then
                     return false, "AGUA_FRENTE"
                 end
                 -- O nivel da agua nao e um degrau solido; mantem o filtro anti-queda.
@@ -1579,8 +1436,6 @@ local function startMovement(hum, root, targetPosition, stopDistance, speedOverr
     end
 
     local function recalc(goal, prefer)
-        -- A descida ja possui rota calculada por amostras do terreno.
-        if travelOptions and travelOptions.routePlanned then return end
         local now = os.clock()
         if nav.computing or now - nav.lastPath < CONFIG.SafePathRecalc then return end
         nav.computing = true
@@ -1650,7 +1505,7 @@ local function startMovement(hum, root, targetPosition, stopDistance, speedOverr
     end
 
     local function selectDirection(from, wanted, direct)
-        local probe = (travelOptions and travelOptions.lookAhead) or CONFIG.SafeLookAhead
+        local probe = CONFIG.SafeLookAhead
         local ok, reason = safeStep(from, wanted, probe)
         if ok then return wanted, "DIRETO", reason end
         if nav.steer and os.clock() < nav.steerUntil then
@@ -1988,7 +1843,7 @@ pressE = function()
     end)
 end
 
--- === AUTO EAT GRASS V8.9.32 ===
+-- === AUTO EAT GRASS V8.9.29 ===
 -- Funciona com prompts REAIS (EAT/GRAZE), nao inventa RemoteEvents de grama.
 -- A estrutura exata dos patches no FERAL nao esta documentada nesta base:
 -- o scanner tenta tags e nomes fisicos comuns e confirma resultado por Hunger.
@@ -2110,7 +1965,7 @@ local function scanNearbyGrass()
     return best, bestPoint, bestDistance
 end
 
--- === AUTO GRASS EXPLORADOR V8.9.32 ===
+-- === AUTO GRASS EXPLORADOR V8.9.29 ===
 -- Quando nao ha grama conhecida no raio local, avanca por terrenos secos
 -- usando o mesmo navegador seguro. Faz scan apenas AO REDOR do personagem,
 -- nao tenta varrer todo o workspace em um unico frame.
@@ -2389,7 +2244,7 @@ local function autoGrazeOnce()
     return false
 end
 
-_G.TGFeralV8932.getFeedDebug = function()
+_G.TGFeralV8928.getFeedDebug = function()
     return {lastAction=feedDebug.lastAction, lastMethod=feedDebug.lastMethod,
         lastAt=feedDebug.lastAt, lastError=feedDebug.lastError,
         remoteAttempts=feedDebug.remoteAttempts,
@@ -2397,7 +2252,7 @@ _G.TGFeralV8932.getFeedDebug = function()
         keyboardFallbacks=feedDebug.keyboardFallbacks,
         windowFocused=windowFocused}
 end
-_G.TGFeralV8932.getGrassDebug = function()
+_G.TGFeralV8928.getGrassDebug = function()
     local status={}
     for k,v in pairs(grassDebug) do status[k]=v end
     status.exploreEnabled=CONFIG.GrassExploreEnabled
@@ -2408,7 +2263,7 @@ _G.TGFeralV8932.getGrassDebug = function()
     status.exploreLastOutcome=grassExplore.lastOutcome
     return status
 end
-_G.TGFeralV8932.scanGrass = function()
+_G.TGFeralV8928.scanGrass = function()
     local obj, pos, distance = scanNearbyGrass()
     return {target=obj and obj:GetFullName() or nil,
         position=pos, distance=distance, candidates=grassDebug.found}
@@ -2449,7 +2304,7 @@ local function pressRestKey(method, holdSeconds)
     return ok,err,method
 end
 
--- V8.9.32: bloqueia a automacao ate CONFIRMAR que o lobo levantou.
+-- V8.9.29: bloqueia a automacao ate CONFIRMAR que o lobo levantou.
 -- Se a animacao custom nao expuser estado, exige confirmacao visual manual.
 local restGuard = {
     blocked=false, character=nil, knownRestTracks={}, observedRest=false,
@@ -2594,13 +2449,13 @@ local function restGateReady()
         warn("AUTO QUEST REST: CAÇA/TRAVEL/FOOD/DRINK BLOQUEADOS; " ..
             "saida do descanso ainda nao confirmada | " .. tostring(restGuard.lastSource))
         warn("AUTO QUEST REST: se o lobo JA estiver em pe, use " ..
-            "_G.TGFeralV8932.confirmStanding() apos conferir visualmente")
+            "_G.TGFeralV8928.confirmStanding() apos conferir visualmente")
     end
     return false
 end
 
 -- Diagnostic API methods are registered only after rest helpers exist.
-_G.TGFeralV8932.getRestStatus = function()
+_G.TGFeralV8928.getRestStatus = function()
     local char,hum=actor()
     local resting,source=nil,"sem personagem"
     if char and hum then resting,source=detectResting(char,hum) end
@@ -2610,7 +2465,7 @@ _G.TGFeralV8932.getRestStatus = function()
         inputOK=restGuard.lastInputOK, progress=restGuard.lastProgress,
         failedStarts=restGuard.failedStarts, inputError=restGuard.lastInputError}
 end
-_G.TGFeralV8932.confirmStanding = function()
+_G.TGFeralV8928.confirmStanding = function()
     if not restGuard.blocked then return true end
     local char,hum=actor()
     if not char or not hum then return false end
@@ -2987,7 +2842,7 @@ safeRescueConnection=RunService.Heartbeat:Connect(function()
     end
 end)
 
--- === AUTO DRINK V8.9.32: MARGEM SEGURA, NAO VOXEL DE AGUA ===
+-- === AUTO DRINK V8.9.29: MARGEM SEGURA, NAO VOXEL DE AGUA ===
 -- Escolhe solo seco ao lado da agua e recusa lago abaixo de barranco.
 -- Nao reduz a protecao anti-queda nem altera o Terrain.
 local failedWater = {}
@@ -3064,274 +2919,12 @@ local function findAccessibleBank(waterPos, fromPos)
     return bestBank
 end
 
--- === DESNIVEL V8.9.32: A* SOBRE SOLO TRANSITAVEL ===
--- So cria uma rota se encontrar um caminho continuo por terra ate a margem.
--- Nao aumenta SafeMaxDrop, nao teleporta, nao pula e nao edita o Terrain.
-local descentWetRay=RaycastParams.new()
-descentWetRay.FilterType=Enum.RaycastFilterType.Include
-descentWetRay.FilterDescendantsInstances={Terrain}
-descentWetRay.IgnoreWater=false
-
-local function descentBanks(water, origin)
-    local found,seen={},{}
-    for _,radius in ipairs({4,6,9,12,14}) do
-        if radius<=CONFIG.WaterBankSearchRadius then
-            for i=0,15 do
-                local angle=math.pi*2*i/16
-                local x=water.X+math.cos(angle)*radius
-                local z=water.Z+math.sin(angle)*radius
-                local hit=workspace:Raycast(Vector3.new(x,water.Y+46,z),
-                    Vector3.new(0,-100,0),waterLandRay)
-                if hit and hit.Material~=Enum.Material.Water
-                    and hit.Normal.Y>=math.max(0.72,CONFIG.SafeGroundSlopeY)
-                    and hit.Position.Y>=water.Y-1.5 and hit.Position.Y<=water.Y+5 then
-                    local key=math.floor(x/4)..":"..math.floor(z/4)
-                    if not seen[key] then
-                        seen[key]=true
-                        table.insert(found, Vector3.new(x,hit.Position.Y+2.5,z))
-                    end
-                end
-            end
-        end
-    end
-    -- Prefere margens realmente perto da agua para que Feed drink tenha alcance.
-    table.sort(found,function(a,b)
-        local sa=horizontal(a,water).Magnitude*4+horizontal(origin,a).Magnitude*0.15
-        local sb=horizontal(b,water).Magnitude*4+horizontal(origin,b).Magnitude*0.15
-        return sa<sb
-    end)
-    -- Deduplica alvos proximos: evita que todos os candidatos fiquem no mesmo canto.
-    local result={}
-    for _,p in ipairs(found) do
-        local unique=true
-        for _,q in ipairs(result) do
-            if horizontal(p,q).Magnitude<8 then unique=false break end
-        end
-        if unique then table.insert(result,p) end
-        if #result>=CONFIG.WaterDescentMaxCandidates then break end
-    end
-    return result
-end
-
--- Caminho A* na superficie do Terrain; raycasts detectam aterros, agua e rampas.
--- Os custos e a heuristica sao horizontais; cada aresta e testada em subpassos.
-local function planWaterDescent(waterPos, fromPos, scanEpoch)
-    if not CONFIG.WaterDescentEnabled or typeof(waterPos)~="Vector3"
-        or waterIsBlocked(waterPos) then return nil end
-    if horizontal(fromPos,waterPos).Magnitude>CONFIG.WaterDescentSearchRadius-10 then
-        return nil
-    end
-    descentStats.attempts+=1
-    descentStats.water=waterPos
-    local started=os.clock()
-    local banks=descentBanks(waterPos,fromPos)
-    if #banks==0 then
-        descentStats.last="MARGEM SECA NAO ENCONTRADA"
-        return nil
-    end
-
-    local step=CONFIG.WaterDescentGridStep
-    local maxRadius=CONFIG.WaterDescentSearchRadius
-    local maxRadius2=maxRadius*maxRadius
-    -- Usa somente a camada superior do Terrain (nao vai para solo sob o lago).
-    local rayY=math.max(fromPos.Y,waterPos.Y)+135
-    local rayDown=math.max(350,maxRadius+180)
-    local samples={}
-    local function surface(x,z)
-        local key=math.floor(x*5+0.5)..":"..math.floor(z*5+0.5)
-        local cached=samples[key]
-        if cached~=nil then return cached or nil end
-        local hit=workspace:Raycast(Vector3.new(x,rayY,z),
-            Vector3.new(0,-rayDown,0),descentWetRay)
-        local value=nil
-        if hit and hit.Material~=Enum.Material.Water
-            and hit.Normal.Y>=CONFIG.SafeGroundSlopeY then
-            value=Vector3.new(x,hit.Position.Y+2.5,z)
-        end
-        samples[key]=value or false
-        return value
-    end
-    -- Confere inclinacao e altura intermediaria, nao apenas extremos dos nos.
-    local function edgeOK(a,b)
-        local vec=horizontal(a,b)
-        local length=vec.Magnitude
-        if length<0.01 then return math.abs(a.Y-b.Y)<=CONFIG.SafeMaxClimb end
-        local count=math.max(1,math.ceil(length/2.8))
-        local last=a
-        for k=1,count do
-            local alpha=k/count
-            local p=surface(a.X+(b.X-a.X)*alpha,a.Z+(b.Z-a.Z)*alpha)
-            if not p then return false end
-            local delta=p.Y-last.Y
-            if delta>CONFIG.SafeMaxClimb or delta< -CONFIG.SafeMaxDrop then
-                return false
-            end
-            last=p
-        end
-        return math.abs(last.Y-b.Y)<=3
-    end
-
-    local nodes={}
-    local function nodeKey(ix,iz) return ix..":"..iz end
-    local function getNode(ix,iz)
-        local key=nodeKey(ix,iz)
-        local value=nodes[key]
-        if value~=nil then return value or nil end
-        local dx,dz=ix*step,iz*step
-        if dx*dx+dz*dz>maxRadius2 then
-            nodes[key]=false
-            return nil
-        end
-        local pos=surface(fromPos.X+dx,fromPos.Z+dz)
-        if not pos then nodes[key]=false return nil end
-        value={key=key,x=ix,z=iz,pos=pos,g=math.huge,parent=nil,closed=false}
-        nodes[key]=value
-        return value
-    end
-    local start=getNode(0,0)
-    if not start or math.abs(start.pos.Y-fromPos.Y)>10 then
-        descentStats.last="SEM SOLO SEGURO SOB O ANIMAL"
-        return nil
-    end
-
-    -- Heap binario para evitar varrer milhares de celulas a cada passo.
-    local heap={}
-    local function push(node,priority)
-        local item={node=node,priority=priority,g=node.g}
-        local i=#heap+1
-        while i>1 do
-            local parent=math.floor(i/2)
-            if heap[parent].priority<=priority then break end
-            heap[i]=heap[parent]
-            i=parent
-        end
-        heap[i]=item
-    end
-    local function pop()
-        local result=heap[1]
-        if not result then return nil end
-        local last=table.remove(heap)
-        if #heap>0 then
-            local i=1
-            while i*2<=#heap do
-                local j=i*2
-                if j<#heap and heap[j+1].priority<heap[j].priority then j+=1 end
-                if heap[j].priority>=last.priority then break end
-                heap[i]=heap[j]
-                i=j
-            end
-            heap[i]=last
-        end
-        return result
-    end
-    local function heuristic(p)
-        local distance=math.huge
-        for _,b in ipairs(banks) do
-            local d=horizontal(p,b).Magnitude
-            if d<distance then distance=d end
-        end
-        return distance
-    end
-    start.g=0
-    push(start,heuristic(start.pos))
-    local offsets={{1,0},{-1,0},{0,1},{0,-1},{1,1},{1,-1},{-1,1},{-1,-1}}
-    local expanded=0
-    local doneNode,doneBank=nil,nil
-    local stopReason="SEM PASSAGEM SEGURA"
-    while #heap>0 do
-        if not active or not CONFIG.AutoDrink or scanEpoch~=controlsEpoch then
-            descentStats.last="CANCELADO"
-            return nil
-        end
-        if os.clock()-started>CONFIG.WaterDescentTimeBudget then
-            stopReason="TEMPO LIMITE"
-            break
-        end
-        if expanded>=CONFIG.WaterDescentMaxNodes then
-            stopReason="LIMITE DE CELULAS"
-            break
-        end
-        local item=pop()
-        local current=item and item.node
-        if current and not current.closed and item.g==current.g then
-            current.closed=true
-            expanded+=1
-            for _,bank in ipairs(banks) do
-                if horizontal(current.pos,bank).Magnitude<=step*1.7
-                    and edgeOK(current.pos,bank) then
-                    doneNode,doneBank=current,bank
-                    break
-                end
-            end
-            if doneNode then break end
-            for _,offset in ipairs(offsets) do
-                local nextNode=getNode(current.x+offset[1],current.z+offset[2])
-                if nextNode and not nextNode.closed and edgeOK(current.pos,nextNode.pos) then
-                    local length=horizontal(current.pos,nextNode.pos).Magnitude
-                    local rise=math.max(0,nextNode.pos.Y-current.pos.Y)
-                    local cost=length+rise*0.45
-                    local nextG=current.g+cost
-                    if nextG<nextNode.g then
-                        nextNode.g=nextG
-                        nextNode.parent=current
-                        push(nextNode,nextG+heuristic(nextNode.pos))
-                    end
-                end
-            end
-            if expanded%45==0 then task.wait() end
-        end
-    end
-    descentStats.nodes=expanded
-    descentStats.time=os.clock()-started
-    if not doneNode then
-        descentStats.last=stopReason
-        warn("AUTO DRINK DESCIDA: sem rota testada |",stopReason,
-            "| celulas",expanded,"| tempo",math.floor(descentStats.time*10)/10)
-        return nil
-    end
-
-    local route={}
-    local cursor=doneNode
-    while cursor and cursor~=start do
-        table.insert(route,1,cursor.pos)
-        cursor=cursor.parent
-    end
-    table.insert(route,doneBank)
-    -- Evita microtrechos desnecessarios sem substituir rampas por atalhos.
-    local clean={}
-    for _,point in ipairs(route) do
-        if #clean==0 or horizontal(clean[#clean],point).Magnitude>=1.5 then
-            table.insert(clean,point)
-        end
-    end
-    descentStats.last="ROTA ENCONTRADA"
-    descentStats.successes+=1
-    descentStats.waypoints=#clean
-    print("AUTO DRINK DESCIDA: ROTA ENCONTRADA |",#clean,"trechos |",
-        expanded,"celulas | do Y",math.floor(fromPos.Y),"ate Y",math.floor(doneBank.Y))
-    return clean,doneBank
-end
-
-local function descentCandidateAdd(items,water,origin)
-    if not CONFIG.WaterDescentEnabled or typeof(water)~="Vector3" then return end
-    if horizontal(water,origin).Magnitude>CONFIG.WaterDescentSearchRadius-10
-        or waterIsBlocked(water) then return end
-    for _,p in ipairs(items) do
-        if horizontal(p,water).Magnitude<55 then return end
-    end
-    table.insert(items,water)
-    table.sort(items,function(a,b)
-        return horizontal(a,origin).Magnitude<horizontal(b,origin).Magnitude
-    end)
-    while #items>3 do table.remove(items) end
-end
-
 -- Busca agua dentro de um pequeno bloco (em voxels), sem carregar o mapa inteiro.
 local function scanWaterBlock(center, halfWidth, referencePos)
     local resolution=4
     local region=Region3.new(
-        center-Vector3.new(halfWidth,100,halfWidth),
-        center+Vector3.new(halfWidth,20,halfWidth)
+        center-Vector3.new(halfWidth,24,halfWidth),
+        center+Vector3.new(halfWidth,16,halfWidth)
     ):ExpandToGrid(resolution)
     local ok,materials,occupancy=pcall(function()
         return Terrain:ReadVoxels(region,resolution)
@@ -3376,19 +2969,11 @@ local function findWater()
     if not root then return nil end
     local origin=root.Position
 
-    local descentCandidates={}
     local nearby=findLocalWater(origin)
     if nearby then
         local bank=findAccessibleBank(nearby,origin)
         if bank then
             return bank,"Margem Terrain local",horizontal(origin,bank).Magnitude,nearby
-        end
-        -- Caso agua esteja abaixo, tenta achar a descida ANTES de varrer o mapa.
-        descentCandidateAdd(descentCandidates,nearby,origin)
-        local route,shore=planWaterDescent(nearby,origin,scanEpoch)
-        if route and shore then
-            return shore,"Descida autonoma local",
-                horizontal(origin,shore).Magnitude,nearby,route
         end
     end
 
@@ -3411,16 +2996,6 @@ local function findWater()
             if not active or not CONFIG.AutoDrink or scanEpoch~=controlsEpoch then return nil end
             if os.clock()-started>CONFIG.WaterScanTimeBudget then
                 warn("AUTO DRINK MARGEM: tempo limite do scan; ultimo anel:",ring)
-                -- Candidatos baixos coletados no scan ainda podem ter uma descida.
-                for _,water in ipairs(descentCandidates) do
-                    if active and CONFIG.AutoDrink and scanEpoch==controlsEpoch then
-                        local route,shore=planWaterDescent(water,origin,scanEpoch)
-                        if route and shore then
-                            return shore,"Descida autonoma Terrain",
-                                horizontal(origin,shore).Magnitude,water,route
-                        end
-                    end
-                end
                 return nil
             end
             local angle=2*math.pi*i/count
@@ -3440,7 +3015,6 @@ local function findWater()
                 water=scanWaterBlock(Vector3.new(x,y,z),ring<=350 and 38 or 48,origin)
             end
             if water then
-                descentCandidateAdd(descentCandidates,water,origin)
                 local bank=findAccessibleBank(water,origin)
                 if bank then
                     local dist=horizontal(origin,bank).Magnitude
@@ -3458,45 +3032,21 @@ local function findWater()
             return bestBank,"Margem Terrain dinamico",bestDist,bestWater
         end
     end
-    for _,water in ipairs(descentCandidates) do
-        if not active or not CONFIG.AutoDrink or scanEpoch~=controlsEpoch then return nil end
-        local route,shore=planWaterDescent(water,origin,scanEpoch)
-        if route and shore then
-            return shore,"Descida autonoma Terrain",
-                horizontal(origin,shore).Magnitude,water,route
-        end
-    end
-    warn("AUTO DRINK MARGEM: sem margem/descida segura identificada; sem saltos")
+    warn("AUTO DRINK MARGEM: sem margem acessivel; nao vou pular de barrancos")
     return nil
 end
 
--- Evita repetir o mesmo scan enquanto o animal continua no mesmo barranco.
-local failedScanPosition, failedScanCharacter, failedScanUntil
 local function drinkOnce()
     if not CONFIG.AutoDrink then return end
     local actionEpoch = controlsEpoch
     if os.clock() < nextDrinkTry then return end
-    local scanCharacter, _, scanRoot = actor()
-    if not scanRoot then return end
-    local scanPosition = scanRoot.Position
-    if failedScanPosition and failedScanCharacter == scanCharacter
-        and os.clock() < failedScanUntil
-        and horizontal(scanPosition, failedScanPosition).Magnitude < 20
-        and math.abs(scanPosition.Y - failedScanPosition.Y) < 6 then
-        nextDrinkTry = math.min(failedScanUntil, os.clock() + 1)
-        return
-    end
-    failedScanPosition, failedScanCharacter, failedScanUntil = nil, nil, nil
     nextDrinkTry = os.clock() + 8
     print("AUTO DRINK: iniciando busca | Sede:", tostring(getThirst()))
 
-    local target, source, initialDistance, sourceWater, descentRoute = findWater()
+    local target, source, initialDistance, sourceWater = findWater()
     if not CONFIG.AutoDrink or controlsEpoch ~= actionEpoch then return end
     if not target then
-        failedScanPosition, failedScanCharacter = scanPosition, scanCharacter
-        failedScanUntil = os.clock() + 45
-        nextDrinkTry = os.clock() + 1
-        print("Auto Drink: sem margem acessivel; nova busca ao mudar de posicao ou em 45 s")
+        print("Auto Drink: sem agua detectada; novo scan em instantes")
         return
     end
 
@@ -3505,35 +3055,21 @@ local function drinkOnce()
     print("AUTO DRINK MARGEM: DESTINO SECO:", tostring(target), "| Origem:", source,
         "| Distancia:", math.floor(initialDistance), "| agua:", tostring(sourceWater))
 
-    local descentIndex=1
-    local descentReplans=0
-    local moveTarget=descentRoute and descentRoute[descentIndex] or target
-    local descentPrevPos=root.Position
-    local function runDrinkMovement()
-        return startMovement(hum, root, function()
-            return moveTarget
-        end, function()
-            if descentRoute and descentIndex<#descentRoute then return 2.7 end
-            if math.abs(root.Position.Y - moveTarget.Y) > 11 then
-                return 0.5
-            end
-            return CONFIG.WaterStopDistance
-        end, function(dist)
-            if descentRoute then return CONFIG.WaterDescentSpeed end
-            if dist > 45 then
-                return CONFIG.WaterCruiseSpeed
-            elseif dist > 15 then
-                return CONFIG.WaterMoveSpeed
-            end
-            return 7
-        end, not descentRoute, nil,
-            descentRoute and {routePlanned=true,dryOnly=true,
-                lookAhead=CONFIG.WaterDescentLookAhead} or nil)
-    end
-    if descentRoute then
-        print("AUTO DRINK DESCIDA: iniciando",#descentRoute,"trechos de solo")
-    end
-    local getDistance=runDrinkMovement()
+    local getDistance = startMovement(hum, root, function()
+        return target
+    end, function()
+        if math.abs(root.Position.Y - target.Y) > 11 then
+            return 0.5
+        end
+        return CONFIG.WaterStopDistance
+    end, function(dist)
+        if dist > 45 then
+            return CONFIG.WaterCruiseSpeed
+        elseif dist > 15 then
+            return CONFIG.WaterMoveSpeed
+        end
+        return 7
+    end, true)
 
     local started = os.clock()
     local lastBest = initialDistance
@@ -3541,95 +3077,28 @@ local function drinkOnce()
     local lastWaterScan = started
     local lastLog = 0
     local arrived = false
-    local routeLength=0
-    if descentRoute then
-        local prev=root.Position
-        for _,point in ipairs(descentRoute) do
-            routeLength+=horizontal(prev,point).Magnitude
-            prev=point
-        end
-    end
-    local timeout=math.min(CONFIG.WaterTravelTimeout,
-        descentRoute and math.max(95,routeLength/math.max(6,CONFIG.WaterDescentSpeed)*3+45)
-            or math.max(35,initialDistance/8+25))
+    local timeout = math.min(CONFIG.WaterTravelTimeout,
+        math.max(35, initialDistance / 8 + 25))
 
     while active and CONFIG.AutoDrink and controlsEpoch == actionEpoch
         and player.Character == char and os.clock() - started < timeout do
         task.wait(0.25)
         if not root.Parent then break end
         local d, reached, navFailed, navMode = getDistance()
-        local stuckFor=os.clock()-lastAdvance
-        if descentRoute and horizontal(root.Position,descentPrevPos).Magnitude>2 then
-            descentPrevPos=root.Position
-            lastAdvance=os.clock()
-            stuckFor=0
-        end
-        local failedLeg=navFailed and navMode~="RESGATE_AGUA"
-        if descentRoute and (failedLeg or stuckFor>CONFIG.StuckTimeout)
-            and descentReplans<CONFIG.WaterDescentMaxReplans then
-            descentReplans+=1
-            stopMovement()
-            warn("AUTO DRINK DESCIDA: rota interrompida, recalculando",
-                descentReplans,"/",CONFIG.WaterDescentMaxReplans)
-            local newRoute,newBank=planWaterDescent(sourceWater,root.Position,actionEpoch)
-            if newRoute and newBank then
-                descentRoute=newRoute
-                target=newBank
-                descentIndex=1
-                moveTarget=descentRoute[1]
-                descentPrevPos=root.Position
-                lastAdvance=os.clock()
-                getDistance=runDrinkMovement()
-                -- Reconsidera o tempo para que a nova rota possa terminar.
-                timeout=math.min(CONFIG.WaterTravelTimeout,math.max(timeout,os.clock()-started+95))
-            else
-                warn("AUTO DRINK DESCIDA: nao encontrou rota alternativa")
-                break
-            end
-        elseif not descentRoute and CONFIG.WaterDescentEnabled and sourceWater
-            and (failedLeg or stuckFor>CONFIG.StuckTimeout) then
-            -- Mesmo com margem em altura aceitavel, a linha reta pode ter barranco.
-            -- Neste caso procura um caminho real em terra antes de desistir.
-            stopMovement()
-            warn("AUTO DRINK DESCIDA: caminho direto falhou; buscando contorno do desnivel")
-            local newRoute,newBank=planWaterDescent(sourceWater,root.Position,actionEpoch)
-            if newRoute and newBank then
-                descentRoute=newRoute
-                target=newBank
-                descentIndex=1
-                moveTarget=descentRoute[1]
-                descentPrevPos=root.Position
-                lastAdvance=os.clock()
-                getDistance=runDrinkMovement()
-                timeout=math.min(CONFIG.WaterTravelTimeout,math.max(timeout,os.clock()-started+110))
-            else
-                warn("AUTO DRINK DESCIDA: nao existe caminho seguro identificado")
-                break
-            end
-        elseif failedLeg then
+        if navFailed and navMode ~= "RESGATE_AGUA" then
             warn("AUTO DRINK MARGEM: navegacao sem rota segura; tentando outra fonte")
             break
-        elseif reached then
-            if descentRoute and descentIndex<#descentRoute then
-                descentIndex+=1
-                moveTarget=descentRoute[descentIndex]
-                lastAdvance=os.clock()
-                if descentIndex%6==0 then
-                    print("AUTO DRINK DESCIDA: trecho",descentIndex,"/",#descentRoute)
-                end
-            else
-                arrived=true
-                break
-            end
-        elseif not descentRoute and d < lastBest - 0.5 then
+        end
+        if reached then
+            arrived = true
+            break
+        end
+        if d < lastBest - 0.5 then
             lastBest = d
             lastAdvance = os.clock()
         end
-        if not descentRoute and os.clock() - lastAdvance > CONFIG.StuckTimeout then
+        if os.clock() - lastAdvance > CONFIG.StuckTimeout then
             warn("Auto Drink: sem progresso no caminho")
-            break
-        elseif descentRoute and os.clock()-lastAdvance>CONFIG.StuckTimeout then
-            warn("AUTO DRINK DESCIDA: nao avancou, interrompendo")
             break
         end
         if os.clock() - lastLog > 5 then
@@ -3640,7 +3109,7 @@ local function drinkOnce()
 
         -- Atualiza SOMENTE para outra margem seca bem mais proxima.
         -- Nao muda o destino para voxels de agua, evitando o loop perto do barranco.
-        if not descentRoute and d <= 65 and os.clock() - lastWaterScan >= 8 then
+        if d <= 65 and os.clock() - lastWaterScan >= 8 then
             lastWaterScan=os.clock()
             local water=findLocalWater(root.Position)
             local newBank=water and findAccessibleBank(water,root.Position) or nil
@@ -3726,45 +3195,10 @@ local function drinkOnce()
     end
 end
 
--- === AUTO QUEST DE BEBER EM LOCAL ESPECIFICO V8.9.32 ===
+-- === AUTO QUEST DE BEBER EM LOCAL ESPECIFICO V8.9.29 ===
 -- Usa pontos que o usuario testou fazendo a missao chegar a DONE.
 -- Nao confunde uma fonte qualquer com Alder Creek / Beaver Ponds.
 local namedDrinkRetryAt = {}
-
--- V8.9.32: diagnostico nao invasivo da prioridade das missoes.
--- Permite verificar por que a missao Great Falls foi ou nao iniciada.
-local questDecisionStatus = {
-    phase = "AGUARDANDO PRIMEIRO CICLO", detail = "", lastAt = os.clock(),
-    loopCount = 0, printedAt = 0
-}
-local function reportQuestDecision(phase, detail)
-    local now = os.clock()
-    detail = tostring(detail or "")
-    local changed = phase ~= questDecisionStatus.phase or detail ~= questDecisionStatus.detail
-    questDecisionStatus.phase = phase
-    questDecisionStatus.detail = detail
-    questDecisionStatus.lastAt = now
-    if changed or now - questDecisionStatus.printedAt >= 15 then
-        print("AUTO QUEST DECISAO:", phase, "|", detail)
-        questDecisionStatus.printedAt = now
-    end
-end
-_G.TGFeralV8932.getQuestDecisionStatus = function()
-    return {
-        phase = questDecisionStatus.phase,
-        detail = questDecisionStatus.detail,
-        loopCount = questDecisionStatus.loopCount,
-        secondsAgo = math.floor(os.clock() - questDecisionStatus.lastAt),
-        quest = (function()
-            local q = questPending("AGUA", function(item)
-                return tostring(item.title or ""):lower():find("drink at ", 1, true) == 1
-            end)
-            return q and q.title or nil
-        end)(),
-        thirst = getThirst(), hunger = getHunger(),
-        active = active
-    }
-end
 
 local function namedDrinkWaypoint(quest)
     if not quest then return nil end
@@ -3925,7 +3359,7 @@ local function doNamedDrinkQuest(quest)
     return false
 end
 
--- === AUTO QUEST V8.9.32: LOCAIS, REST E TERRITORIO ===
+-- === AUTO QUEST V8.9.29: LOCAIS, REST E TERRITORIO ===
 local visitRetryAt, restRetryAt, territoryRetryAt={},{},{}
 
 local function namedVisitWaypoint(q)
@@ -3963,9 +3397,6 @@ local function namedVisitWaypoint(q)
     end
     if t:find("explore granite basin",1,true) or t:find("go to granite basin",1,true) then
         return CONFIG.GraniteBasinVisitPos,"Granite Basin (visita confirmada)"
-    end
-    if t:find("go to lunar crest",1,true) then
-        return CONFIG.LunarCrestVisitPos,"Lunar Crest"
     end
     if t:find("go to beaver ponds",1,true) or t:find("explore beaver ponds",1,true) then
         return CONFIG.BeaverPondsVisitPos,"Beaver Ponds"
@@ -4061,7 +3492,7 @@ local function visitNamedQuest(q)
     end
 end
 
--- V8.9.32: o log "R enviado" nunca foi prova de que o FERAL recebeu a tecla.
+-- V8.9.29: o log "R enviado" nunca foi prova de que o FERAL recebeu a tecla.
 -- Inicia por VIM, confirma o progresso real da quest e so entao trava as
 -- automacoes ate confirmar a saida do descanso. Sem progresso: cooldown.
 local function doRestQuest(q)
@@ -4513,7 +3944,7 @@ local function autoTravelQuest(requestedQuest)
     end
 end
 
-print("=== THE GOAT FERAL V8.9.32 AUTO QUEST | SESSAO " .. sessionID .. " ===")
+print("=== THE GOAT FERAL V8.9.29 AUTO QUEST | SESSAO " .. sessionID .. " ===")
 print("Fome:", tostring(getHunger()))
 print("Ativa <=", CONFIG.HungerStart, "| Para >=", CONFIG.HungerStop)
 print("Raio de caca:", CONFIG.HuntRadius, "| Raio de carcaça:", CONFIG.CarcassRadius)
@@ -4523,7 +3954,7 @@ print("Thirst/Hydration:", tostring(getThirst()))
 print("Auto Drink: start", CONFIG.DrinkStart, "stop", CONFIG.DrinkStop, "raio de busca Terrain", CONFIG.WaterSearchRadius, "scan local", CONFIG.WaterLocalRadius, "speed", CONFIG.WaterMoveSpeed)
 print("AUTO QUEST: monitorando QUICK e DAILY | quest comida: Hunger <= " .. CONFIG.QuestEatStart)
 print("PAINEL: Auto Drink", CONFIG.AutoDrink, "Auto Food", CONFIG.AutoFood, "Auto Grass", CONFIG.AutoGrass, "Auto Quest", CONFIG.AutoQuest)
-print("FEED V8.9.32: WolfActions / Feed / eat-drink (teste com janela minimizada pendente)")
+print("FEED V8.9.29: WolfActions / Feed / eat-drink (teste com janela minimizada pendente)")
 print("AUTO QUEST DISTANCIA:", CONFIG.QuestTravelEnabled and "ON" or "OFF",
     "| speed:", CONFIG.QuestTravelSpeed, "| trecho:", CONFIG.QuestTravelLegStuds)
 print("AUTO QUEST AGUA: Alder Creek confirmado", tostring(CONFIG.AlderCreekDrinkPos))
@@ -4543,9 +3974,9 @@ print("TRAVESSIA AGUA:",CONFIG.WaterAllowCrossing and "LIBERADA" or "COM DESVIOS
     "| nado",CONFIG.WaterSwimSpeed,"studs/s | resgate apos",
     CONFIG.WaterRescueAfterStuckSeconds,"s SEM PROGRESSO")
 print("GET AMBER: caca normal, 1 NPC por vez | alcance", CONFIG.AttackDistance, "studs | intervalo", CONFIG.AttackInterval, "s")
-print("AUTO MOVE SEGURO V8.9.32: corrida ate", CONFIG.SafeMaxSpeed, "| desvio ate", CONFIG.NavCornerSpeed,
+print("AUTO MOVE SEGURO V8.9.29: corrida ate", CONFIG.SafeMaxSpeed, "| desvio ate", CONFIG.NavCornerSpeed,
     "| anti-queda e anti-trava | travessia da agua mantida")
-print("LOG NAV: print(_G.TGFeralV8932.getNavLog())")
+print("LOG NAV: print(_G.TGFeralV8928.getNavLog())")
 print("AUTO QUEST CACA: Catch a mouse e Hunt a herbivore incluidos com selecao sem bloqueio")
 print("MAPA: aliases MapSpots carregados; coordenadas capturadas sempre tem prioridade")
 print("AUTO QUEST LOCAL: Golden Plains", tostring(CONFIG.GoldenPlainsVisitPos))
@@ -4553,19 +3984,16 @@ print("AUTO QUEST LOCAL: Rattlebone Mesa", tostring(CONFIG.RattleboneMesaVisitPo
 print("AUTO QUEST LOCAL: Go to Golden Waterhole [DONE confirmado]", tostring(CONFIG.GoldenWaterholeVisitPos))
 print("AUTO QUEST LOCAL: Explore Granite Basin [DONE confirmado]", tostring(CONFIG.GraniteBasinVisitPos))
 print("AUTO DRINK MARGEM: buscando margem seca acessivel | desnivel max proximo:",CONFIG.WaterBankMaxNearbyDrop)
-print("AUTO DRINK DESCIDA: busca autonoma",CONFIG.WaterDescentEnabled and "ON" or "OFF",
-    "| raio",CONFIG.WaterDescentSearchRadius,"| sem saltar e sem alterar protecao de queda")
-print("STATUS DESCIDA: print(_G.TGFeralV8932.getDescentStatus().last)")
 print("AUTO QUEST AGUA: Golden Waterhole", tostring(CONFIG.GoldenWaterholeDrinkPos))
 print("SEGURANCA AGUA:",CONFIG.WaterSafetyEnabled)
 print("AUTO QUEST LOCAL: Elk Crossing confirmado", tostring(CONFIG.ElkCrossingVisitPos))
 print("AUTO QUEST AGUA: Drink at Elk Crossing (aguarda DONE)", tostring(CONFIG.ElkCrossingDrinkPos))
 print("AUTO QUEST: Rest for 90s (R) e Claim a territory habilitados")
-print("AUTO QUEST REST V8.9.32: tenta R via VIM, depois executor; exige progresso real na GUI")
+print("AUTO QUEST REST V8.9.29: tenta R via VIM, depois executor; exige progresso real na GUI")
 print("AUTO QUEST REST: se R nao for reconhecido, faz pausa e segue outras quests; nao entra em bloqueio falso")
-print("REST STATUS: print(_G.TGFeralV8932.getRestStatus())")
-print("RESURREICAO: sem clique automatico | aguarda respawn natural do FERAL")
-print("RESPAWN NATURAL STATUS: print(_G.TGFeralV8932.getRespawnStatus())")
+print("REST STATUS: print(_G.TGFeralV8928.getRestStatus())")
+print("RESPAWN AUTO: ON | somente RESPAWN apos morte | sem REVIVE/compras")
+print("RESPAWN STATUS: print(_G.TGFeralV8929.getRespawnStatus())")
 print("STATUS: ATIVO | Painel Drink / Food / Grass / Quest / Get Amber | Speed", CONFIG.Speed)
 print("GET AMBER: " .. (CONFIG.GetAmber and "ON" or "OFF") ..
     " | independente de Auto Quest; exige HP alto, Food e Drink ON")
@@ -4580,14 +4008,15 @@ local feeding = false
 local drinking = false
 local grazing = false
 
--- === AUTO RESPAWN V8.9.32 ===
--- No Roblox do FERAL o botao verde RESPAWN eh gratuito.
--- NUNCA clica REVIVE, CHANGE ANIMAL, 2x GROWTH ou qualquer compra.
--- O nome da GUI nao foi identificado, portanto o alvo eh procurado pelo texto
--- EXATO "RESPAWN" e apenas se a morte estiver confirmada.
+-- === AUTO RESPAWN V8.9.29 (somente botao gratuito RESPAWN) ===
+-- Preserva as rotinas e o painel. Nao usa RESPAWN como comando de servidor inventado.
+-- Evita REVIVE, CHANGE ANIMAL e qualquer botao pago.
+-- Tenta sinais de UI se executor os expuser; clique virtual somente em janela focada.
 local respawnState = {
     dead=false, since=0, lastClick=0, attempts=0,
-    deaths=0, successes=0, lastStatus="INICIANDO", lastButton="nenhum"
+    deaths=0, successes=0, lastStatus="INICIANDO", lastButton="nenhum",
+    lastMethod="nenhum", lastError=nil, lastDeathVitals=nil,
+    observedDied=false, aliveVitals=nil
 }
 
 local function respawnVisible(obj)
@@ -4613,15 +4042,15 @@ local function locateRespawnUI()
     if not pg then return nil,false end
     local deathTitle=false
     local best=nil
-    -- Descendants do PlayerGui sao apenas lidos; nao modificamos o UI do jogo.
     for _,obj in ipairs(pg:GetDescendants()) do
         if (obj:IsA("TextLabel") or obj:IsA("TextButton")) and respawnVisible(obj) then
-            local text=normalizeRespawnText(obj.Text)
-            if text=="YOU DIED" then deathTitle=true end
-            if text=="RESPAWN" then
+            local txt=normalizeRespawnText(obj.Text)
+            if txt=="YOU DIED" then deathTitle=true end
+            if txt=="RESPAWN" then
                 local at=obj
                 while at and at~=pg do
                     if at:IsA("GuiButton") and respawnVisible(at) then
+                        -- Um alvo unico, do jogo, com nome/texto exato.
                         best=at
                         break
                     end
@@ -4633,26 +4062,110 @@ local function locateRespawnUI()
     return best,deathTitle
 end
 
-_G.TGFeralV8932.getRespawnStatus=function()
-    local char,hum=actor()
+-- Descobre a morte mesmo quando a GUI 'YOU DIED' ainda nao carregou.
+local observedHumanoid, diedConnection = nil, nil
+local function watchDeath(hum)
+    -- Ao morrer, o jogo pode remover o Humanoid antes de abrir a tela de morte.
+    -- Nao apagar o sinal de morte ate aparecer um NOVO Humanoid.
+    if not hum or hum==observedHumanoid then return end
+    if diedConnection then pcall(function() diedConnection:Disconnect() end) end
+    observedHumanoid=hum
+    respawnState.observedDied=(hum~=nil and hum.Health<=0) or false
+    if hum then
+        diedConnection=hum.Died:Connect(function()
+            respawnState.observedDied=true
+        end)
+    end
+end
+
+-- Registro das ultimas condicoes antes da morte: facilita diagnostico real.
+local function recordAlive(hum,root)
+    if not hum or hum.Health<=0 then return end
+    respawnState.aliveVitals={
+        hp=math.floor(hum.Health*10)/10,
+        maxHp=math.floor(hum.MaxHealth*10)/10,
+        hunger=getHunger(), thirst=getThirst(),
+        pos=root and tostring(root.Position) or "desconhecida",
+        time=os.clock()
+    }
+end
+
+local function requestRespawn(button,attempt)
+    if not (button and button:IsA("GuiButton") and respawnVisible(button)) then
+        return false,"BOTAO", "RESPAWN nao visivel"
+    end
+    -- Cada tentativa usa um metodo distinto para nao disparar duas vezes o mesmo respawn.
+    -- 'firesignal' e 'getconnections' sao opcionais, dependem do executor.
+    local mode=(attempt-1)%5
+    if mode==0 or mode==1 then
+        local method=mode==0 and "MouseButton1Click" or "Activated"
+        if type(firesignal)~="function" then
+            return false,"firesignal("..method..")","executor nao oferece firesignal"
+        end
+        local ok,err=pcall(function()
+            if mode==0 then firesignal(button.MouseButton1Click)
+            else firesignal(button.Activated) end
+        end)
+        return ok,"firesignal("..method..")",ok and nil or tostring(err)
+    elseif mode==2 or mode==3 then
+        local name=mode==2 and "MouseButton1Click" or "Activated"
+        if type(getconnections)~="function" then
+            return false,"getconnections("..name..")","executor nao oferece getconnections"
+        end
+        local called=0
+        local ok,err=pcall(function()
+            local signal=mode==2 and button.MouseButton1Click or button.Activated
+            for _,connection in ipairs(getconnections(signal) or {}) do
+                if connection.Enabled~=false and type(connection.Function)=="function" then
+                    -- Apenas callback do botao RESPAWN exato, nunca outros botoes.
+                    connection.Function()
+                    called+=1
+                end
+            end
+        end)
+        if ok and called==0 then return false,"getconnections("..name..")","sem callback acessivel" end
+        return ok,"getconnections("..name..")",ok and nil or tostring(err)
+    else
+        if not windowFocused then
+            return false,"CLICK VIRTUAL","janela sem foco (protegido)"
+        end
+        local ok,err=pcall(function()
+            -- Clique APENAS no centro do botao RESPAWN. Nao move cursor fisico.
+            local vim=game:GetService("VirtualInputManager")
+            local pos=button.AbsolutePosition+button.AbsoluteSize/2
+            local x,y=math.floor(pos.X),math.floor(pos.Y)
+            vim:SendMouseButtonEvent(x,y,0,true,game,0)
+            task.wait(.08)
+            vim:SendMouseButtonEvent(x,y,0,false,game,0)
+        end)
+        return ok,"CLICK VIRTUAL",ok and nil or tostring(err)
+    end
+end
+
+_G.TGFeralV8928.getRespawnStatus=function()
+    local _,hum=actor()
     return {
-        enabled=CONFIG.AutoRespawn,dead=respawnState.dead,
+        enabled=CONFIG.AutoRespawn, dead=respawnState.dead,
         health=hum and hum.Health or nil,
-        attempts=respawnState.attempts,deaths=respawnState.deaths,
-        successes=respawnState.successes,lastStatus=respawnState.lastStatus,
-        lastButton=respawnState.lastButton,
+        attempts=respawnState.attempts, deaths=respawnState.deaths,
+        successes=respawnState.successes, lastStatus=respawnState.lastStatus,
+        lastButton=respawnState.lastButton, lastMethod=respawnState.lastMethod,
+        lastError=respawnState.lastError, lastDeathVitals=respawnState.lastDeathVitals,
         lastClickSeconds=respawnState.lastClick>0 and os.clock()-respawnState.lastClick or nil
     }
 end
 
--- Monitor independente: interrompe imediatamente caca/viagem durante a tela de morte.
--- Ao reaparecer, reavalia fome/sede e reseta quests antigas do personagem anterior.
+-- Monitor independente: interrompe caca/viagem durante a morte.
+-- Ao reaparecer, conserva switches do usuario e revalida dados do novo animal.
 task.spawn(function()
     while active do
+        local monitorOk,monitorError=pcall(function()
         local char,hum,root=actor()
+        watchDeath(hum)
         local live=hum and hum.Health>0 and root and root.Parent
+        if live then recordAlive(hum,root) end
         local button,deathTitle=locateRespawnUI()
-        local dead=(deathTitle==true) or (hum~=nil and hum.Health<=0)
+        local dead=(deathTitle==true) or respawnState.observedDied or (hum~=nil and hum.Health<=0)
         local now=os.clock()
 
         if dead then
@@ -4662,6 +4175,7 @@ task.spawn(function()
                 respawnState.lastClick=0
                 respawnState.attempts=0
                 respawnState.deaths+=1
+                respawnState.lastDeathVitals=respawnState.aliveVitals
                 controlsEpoch+=1
                 stopMovement()
                 feeding=false
@@ -4671,14 +4185,30 @@ task.spawn(function()
                 setActivity("AutoDrink","PAUSADO: MORTE")
                 setActivity("AutoQuest","PAUSADO: MORTE")
                 setActivity("GetAmber",CONFIG.GetAmber and "PAUSADO: MORTE" or "DESATIVADO")
-                print("THE GOAT: MORTE DETECTADA | aguardando respawn natural")
+                local v=respawnState.lastDeathVitals or {}
+                print("THE GOAT: MORTE DETECTADA | HP anterior",v.hp,
+                    "| Hunger",v.hunger,"| Thirst",v.thirst,"| pos",v.pos)
             end
-            -- O jogo faz o respawn sozinho: apenas aguarda, sem clicar em compras/botoes.
-            respawnState.lastStatus="AGUARDANDO RESPAWN NATURAL"
+            if not CONFIG.AutoRespawn then
+                respawnState.lastStatus="AUTO RESPAWN OFF | AGUARDANDO MANUAL"
+            elseif not button then
+                respawnState.lastStatus="AGUARDANDO BOTAO RESPAWN"
+            elseif now-respawnState.lastClick>=2.6 then
+                respawnState.lastClick=now
+                respawnState.attempts+=1
+                respawnState.lastButton=button:GetFullName()
+                local ok,method,err=requestRespawn(button,respawnState.attempts)
+                respawnState.lastMethod=method
+                respawnState.lastError=err
+                respawnState.lastStatus=ok and "RESPAWN SOLICITADO" or "TENTATIVA SEM SUCESSO"
+                print("THE GOAT AUTO RESPAWN | tentativa",respawnState.attempts,
+                    "| metodo",method,"|",respawnState.lastStatus,err or "")
+            end
             setActivity("AutoRespawn",respawnState.lastStatus)
         elseif respawnState.dead then
             if live then
                 respawnState.dead=false
+                respawnState.observedDied=false
                 respawnState.successes+=1
                 respawnState.lastStatus="RENASCIMENTO CONFIRMADO"
                 setActivity("AutoRespawn","AGUARDANDO MORTE")
@@ -4693,30 +4223,35 @@ task.spawn(function()
                 clearRestGuard("novo personagem apos respawn")
                 feeding=false
                 drinking=false
-                setActivity("AutoFood","EM ESPERA")
+                setActivity("AutoFood",CONFIG.AutoFood and "EM ESPERA" or "DESATIVADO")
                 setActivity("AutoGrass",CONFIG.AutoGrass and "EM ESPERA" or "DESATIVADO")
-                setActivity("AutoDrink","EM ESPERA")
-                setActivity("AutoQuest","EM ESPERA")
+                setActivity("AutoDrink",CONFIG.AutoDrink and "EM ESPERA" or "DESATIVADO")
+                setActivity("AutoQuest",CONFIG.AutoQuest and "EM ESPERA" or "DESATIVADO")
                 setActivity("GetAmber",CONFIG.GetAmber and "EM ESPERA" or "DESATIVADO")
-                print("THE GOAT: PERSONAGEM VIVO | automacoes liberadas apos respawn natural")
+                print("THE GOAT: RESPAWN CONFIRMADO | automacoes religadas conforme os botoes")
             else
-                respawnState.lastStatus="AGUARDANDO PERSONAGEM"
+                respawnState.lastStatus="AGUARDANDO NOVO PERSONAGEM"
                 setActivity("AutoRespawn",respawnState.lastStatus)
             end
         else
             setActivity("AutoRespawn",CONFIG.AutoRespawn and "AGUARDANDO MORTE" or "DESATIVADO")
         end
+        end)
+        if not monitorOk then
+            respawnState.lastStatus="ERRO NO MONITOR | RECUPERANDO"
+            respawnState.lastError=tostring(monitorError)
+            warn("THE GOAT AUTO RESPAWN: erro temporario no monitor |",monitorError)
+        end
         task.wait(respawnState.dead and .65 or 1.2)
     end
+    if diedConnection then pcall(function() diedConnection:Disconnect() end) end
 end)
 
 -- Loop principal continua abaixo; mortes pausam todas as rotinas automaticamente.
 task.spawn(function()
     while active do
         local ok, err = pcall(function()
-            questDecisionStatus.loopCount += 1
             if respawnState.dead then
-                reportQuestDecision("PAUSADO", "personagem morto; aguardando respawn")
                 task.wait(1)
             else
             -- Guard de descanso: nunca perseguir/atacar deitado apos R.
@@ -4734,13 +4269,11 @@ task.spawn(function()
                 end
             end
             if restGuard.blocked and not restGateReady() then
-                reportQuestDecision("BLOQUEADO", "descanso ainda nao terminou")
                 task.wait(1.25)
             else
             local h = getHunger()
             local t = getThirst()
             if h == nil then
-                reportQuestDecision("BLOQUEADO", "atributo Hunger nao encontrado")
                 warn("Atributo Hunger nao encontrado")
                 task.wait(3)
             else
@@ -4792,28 +4325,13 @@ task.spawn(function()
                 local namedQuest = CONFIG.AutoDrink and not CONFIG.GetAmber and questPending("AGUA", function(q)
                     return namedDrinkWaypoint(q) ~= nil
                 end) or nil
-                local namedReady = namedQuestReady(namedQuest, t)
-                if namedQuest then
-                    local cooldown = math.max(0, (namedDrinkRetryAt[namedQuest.title] or 0) - os.clock())
-                    reportQuestDecision(namedReady and "QUEST AGUA PRONTA" or "QUEST AGUA ESPERANDO",
-                        namedQuest.title .. " | sede=" .. tostring(t) ..
-                        " | limite=" .. CONFIG.QuestNamedDrinkStart ..
-                        " | cooldown=" .. math.floor(cooldown) .. "s")
-                else
-                    reportQuestDecision("SEM QUEST AGUA NOMEADA",
-                        "autoQuest=" .. tostring(CONFIG.AutoQuest) ..
-                        " | autoDrink=" .. tostring(CONFIG.AutoDrink) ..
-                        " | getAmber=" .. tostring(CONFIG.GetAmber) ..
-                        " | sede=" .. tostring(t))
-                end
                 if CONFIG.AutoDrink and drinking and t and t < CONFIG.QuestNamedDrinkSafetyThreshold then
                     if os.clock() >= nextDrinkTry then
                         setActivity("AutoDrink","BUSCANDO AGUA")
                         drinkOnce()
                         setActivity("AutoDrink","EM ESPERA")
                     else task.wait(0.7) end
-                elseif namedReady then
-                    reportQuestDecision("INICIANDO MISSAO AGUA", namedQuest.title)
+                elseif namedQuestReady(namedQuest, t) then
                     setActivity("AutoDrink","BEBENDO NA QUEST")
                     setActivity("AutoQuest","MISSAO DE AGUA")
                     doNamedDrinkQuest(namedQuest)
@@ -4976,7 +4494,6 @@ task.spawn(function()
             end
             runtimeStatus.recovering = false
         else
-            reportQuestDecision("ERRO NO LOOP", tostring(err))
             runtimeStatus.consecutiveErrors += 1
             runtimeStatus.totalErrors += 1
             runtimeStatus.lastError = tostring(err)
@@ -4991,43 +4508,43 @@ task.spawn(function()
             warn("THE GOAT: falha na rotina | tentativa",
                 runtimeStatus.consecutiveErrors, "/ 3 |", runtimeStatus.lastError)
             if runtimeStatus.consecutiveErrors >= 3 then
-                warn("THE GOAT: encerrado apos 3 falhas consecutivas; consulte getRuntimeStatus()")
-                break
+                -- Nao chama stop(): isso destruia o painel ao atingir 3 erros.
+                -- Reavalia a sessao apos intervalo longo, evitando loop pesado.
+                warn("THE GOAT: 3 falhas | pausando 30s para recuperacao; painel preservado")
+                task.wait(30)
+                runtimeStatus.consecutiveErrors = 0
+            else
+                task.wait(runtimeStatus.consecutiveErrors * 2)
             end
-            task.wait(runtimeStatus.consecutiveErrors * 2)
         end
     end
     runtimeStatus.recovering = false
     stop()
-    print("THE GOAT FERAL V8.9.32 SESSAO " .. sessionID .. " DESLIGADA")
+    print("THE GOAT FERAL V8.9.29 SESSAO " .. sessionID .. " DESLIGADA")
 end)
 
 -- Para desligar no console:
--- if _G.TGFeralV8932 then _G.TGFeralV8932.stop() end  -- encerrar tudo (nao ha X)
--- Status: print(_G.TGFeralV8932 and _G.TGFeralV8932.isActive())
--- Get Amber livre: _G.TGFeralV8932.config.GetAmber = true (prefira o botao do painel)
+-- if _G.TGFeralV8928 then _G.TGFeralV8928.stop() end  -- encerrar tudo (nao ha X)
+-- Status: print(_G.TGFeralV8928 and _G.TGFeralV8928.isActive())
+-- Get Amber livre: _G.TGFeralV8928.config.GetAmber = true (prefira o botao do painel)
 -- Grass: ligue AUTO EAT GRASS no painel como herbivoro e fique proximo a grama.
--- Debug: print(_G.TGFeralV8932.getGrassDebug().status)
--- Scan manual: print(_G.TGFeralV8932.scanGrass().target)
+-- Debug: print(_G.TGFeralV8928.getGrassDebug().status)
+-- Scan manual: print(_G.TGFeralV8928.scanGrass().target)
 -- Se nenhuma grama for encontrada, envie logs/nomes dos patches para refinar scanner.
--- Descida: print(_G.TGFeralV8932.getDescentStatus().last)
--- Descida OFF: _G.TGFeralV8932.config.WaterDescentEnabled=false
 -- O Get Amber nao exige AutoQuest ON, nem quests DONE, nem leitura de QUICK/DAILY.
 -- Com ambos ON, Get Amber tem prioridade; desligue Get Amber para retomar as quests.
--- Abates: print(_G.TGFeralV8932.getAmberKills())
+-- Abates: print(_G.TGFeralV8928.getAmberKills())
 -- Get Amber usa apenas AmberSpecies (Deer, Otter, Fox).
--- Missoes: for _, q in ipairs(_G.TGFeralV8932.getQuests()) do print(q.title, q.progress, q.category) end
--- Scanner: print(_G.TGFeralV8932.getQuestScannerStatus().source)
--- Prioridade: print(_G.TGFeralV8932.getQuestDecisionStatus().phase, _G.TGFeralV8932.getQuestDecisionStatus().detail)
+-- Missoes: for _, q in ipairs(_G.TGFeralV8928.getQuests()) do print(q.title, q.progress, q.category) end
 
--- Descanso: print(_G.TGFeralV8932.getRestStatus())
+-- Descanso: print(_G.TGFeralV8928.getRestStatus())
 -- Se o jogo nao expuser animacao/estado, confirme VISUALMENTE o lobo em pe
--- e somente depois: print(_G.TGFeralV8932.confirmStanding())
+-- e somente depois: print(_G.TGFeralV8928.confirmStanding())
 
 
 end
 
-print("THE GOAT: iniciando versao sem cliques")
+print("THE GOAT: iniciando versao sem cliques de combate, com respawn automatico")
 local ok, falha = xpcall(iniciarTheGoat, function(err)
     if debug and type(debug.traceback) == "function" then
         return debug.traceback(tostring(err), 2)
