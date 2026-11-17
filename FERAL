@@ -1,4 +1,4 @@
--- THE GOAT FERAL V8.9.33 - AUTO QUEST | AURA INTEGRADA | FIX AUTO GRASS HIPPO
+-- THE GOAT FERAL V8.9.34 - AUTO QUEST | AURA INTEGRADA | FIX AUTO GRASS HIPPO
 -- CORRECAO: Auto Grass para Hippo e demais herbivoros; Great Falls, Aura V2 e demais rotinas preservadas.
 -- Preserva Auto Drink, descida automatica, Auto Food, Auto Quest e painel da V8.9.31.
 -- BASE: V8.9.23, com as funcoes e melhorias preservadas da V8.9.21.
@@ -36,10 +36,10 @@ for _, eventName in ipairs({"WindowFocused", "WindowFocusReleased"}) do
     end
 end
 
--- Desliga versoes antigas antes de iniciar a V8.9.33.
+-- Desliga versoes antigas antes de iniciar a V8.9.34.
 _G.TGAutoEat = (_G.TGAutoEat or 0) + 1
 _G.TGFeralDrinkSession = (_G.TGFeralDrinkSession or 0) + 1
-for _, name in ipairs({"TGFeralEatV2", "TGFeralEatV3", "TGFeralEatV4", "TGFeralEatV5", "TGFeralHuntV6", "TGFeralV7", "TGFeralV8", "TGFeralV81", "TGFeralV82", "TGFeralV83", "TGFeralV84", "TGFeralV85", "TGFeralV86", "TGFeralV87", "TGFeralV88", "TGFeralV89", "TGFeralV891", "TGFeralV892", "TGFeralV893", "TGFeralV894", "TGFeralV895", "TGFeralV896", "TGFeralV897", "TGFeralV898", "TGFeralV899", "TGFeralV8910", "TGFeralV8911", "TGFeralV8912", "TGFeralV8913", "TGFeralV8914", "TGFeralV8915", "TGFeralV8916", "TGFeralV8917", "TGFeralV8918", "TGFeralV8919", "TGFeralV8920", "TGFeralV8921", "TGFeralV8922", "TGFeralV8923", "TGFeralV8924", "TGFeralV8925", "TGFeralV8927", "TGFeralV8928", "TGFeralV8929", "TGFeralV8930", "TGFeralV8931", "TGFeralV8932", "TGFeralV8933", "TGAttackLab", "TGAttackLabV2"}) do
+for _, name in ipairs({"TGFeralEatV2", "TGFeralEatV3", "TGFeralEatV4", "TGFeralEatV5", "TGFeralHuntV6", "TGFeralV7", "TGFeralV8", "TGFeralV81", "TGFeralV82", "TGFeralV83", "TGFeralV84", "TGFeralV85", "TGFeralV86", "TGFeralV87", "TGFeralV88", "TGFeralV89", "TGFeralV891", "TGFeralV892", "TGFeralV893", "TGFeralV894", "TGFeralV895", "TGFeralV896", "TGFeralV897", "TGFeralV898", "TGFeralV899", "TGFeralV8910", "TGFeralV8911", "TGFeralV8912", "TGFeralV8913", "TGFeralV8914", "TGFeralV8915", "TGFeralV8916", "TGFeralV8917", "TGFeralV8918", "TGFeralV8919", "TGFeralV8920", "TGFeralV8921", "TGFeralV8922", "TGFeralV8923", "TGFeralV8924", "TGFeralV8925", "TGFeralV8927", "TGFeralV8928", "TGFeralV8929", "TGFeralV8930", "TGFeralV8931", "TGFeralV8932", "TGFeralV8933", "TGFeralV8934", "TGAttackLab", "TGAttackLabV2"}) do
     local old = _G[name]
     if type(old) == "table" and type(old.stop) == "function" then
         pcall(old.stop)
@@ -54,19 +54,20 @@ end
 local CONFIG = {
     HungerStart = 80,       -- Comeca a procurar alimento (como no arquivo enviado)
     HungerStop = 95,        -- Para quando a fome recuperar
-    AutoQuest = true,
-    AutoFood = true,      -- Cacar e comer para sobrevivencia; tambem autoriza quests de caca
+    AutoQuest = false, -- escolha manual no painel, sempre OFF ao iniciar
+    AutoFood = false,     -- AUTO DIETA define conforme animal; OFF ate reconhecer especie
     AutoAttack = false, -- Aura V2: OFF inicial por seguranca; ative no painel ou V
     AuraDetectRange = 60,
     AuraMinRange = 10,
     AuraMaxRange = 100,
     AuraAttackInterval = 0.8,
     AuraBiteHitDelay = 0.12,
-    -- AUTO GRASS: inicia ON, mas a rotina de pasto so atua para herbivoros identificados.
-    AutoGrass = true,
+    -- AUTO DIETA: ativa apenas a alimentacao apropriada ao animal reconhecido.
+    AutoDietSwitch = true,
+    AutoGrass = false, -- sera ativado para herbivoros identificados (Hippo, Elephant etc.)
     GrassStart = 80,            -- comeca a pastar
     GrassStop = 95,             -- para quando alimentado
-    FeedRemoteFirst = true,     -- V8.9.33: WolfActions Feed (funciona sem simular E)
+    FeedRemoteFirst = true,     -- V8.9.34: WolfActions Feed (funciona sem simular E)
     FeedFallbackKey = true,    -- tecla E apenas se comando remoto nao puder ser enviado
     GrassSearchRadius = 220,   -- buscar patches proximos, sem scan global pesado
     GrassScanMaxParts = 1600,
@@ -74,6 +75,10 @@ local CONFIG = {
     GrassTravelTimeout = 52,
     GrassEatTimeout = 75,
     GrassFailedCooldown = 40,
+    GrassFailedAreaRadius = 34, -- nao repetir Feed onde nao recuperou Hunger
+    GrassFailedAreaCooldown = 150,
+    GrassTerrainFallback = true, -- amostra Terrain Grass quando nao ha patches fisicos
+    GrassFeedNoGainSeconds = 11, -- abandona antes a area sem alimento valido
     -- Se nao detectar pasto a 220 studs, explora terreno em espiral.
     GrassExploreEnabled = true,
     GrassExploreMaxRadius = 800,  -- alcance por setor; depois inicia outro setor
@@ -236,8 +241,8 @@ local active = true
 local controlsEpoch = 0 -- interrompe operacoes antigas quando qualquer botao muda
 local destroyPanel = nil
 local stopQuestTabHooks = nil
-_G.TGFeralV8933Counter = (_G.TGFeralV8933Counter or 0) + 1
-local sessionID = _G.TGFeralV8933Counter
+_G.TGFeralV8934Counter = (_G.TGFeralV8934Counter or 0) + 1
+local sessionID = _G.TGFeralV8934Counter
 local movementConnection = nil
 local movementHum, movementRoot, savedWalkSpeed = nil, nil, nil
 local savedAutoRotate, savedAlign, savedAlignEnabled = nil, nil, nil
@@ -385,11 +390,36 @@ local function herbivoreState()
     return nil, "ESPECIE NAO IDENTIFICADA"
 end
 
+-- Auto selecao de alimentacao. A escolha do usuario nos botoes vale ate
+-- o animal mudar (nova especie, novo character ou estado desconhecido->conhecido).
+local dietSwitchState = {character=nil, mode=nil, species=nil, lastAt=0}
+local function syncAutoDiet()
+    local char = player.Character
+    local herbivore, species = herbivoreState()
+    local mode = herbivore==true and "HERBIVORO" or
+        (herbivore==false and "CARNIVORO" or "DESCONHECIDO")
+    if CONFIG.AutoDietSwitch and
+        (char ~= dietSwitchState.character or mode ~= dietSwitchState.mode) then
+        dietSwitchState.character=char
+        dietSwitchState.mode=mode
+        dietSwitchState.species=species
+        dietSwitchState.lastAt=os.clock()
+        CONFIG.AutoGrass=(herbivore==true)
+        CONFIG.AutoFood=(herbivore==false)
+        controlsEpoch += 1 -- encerra rotas da dieta anterior, se houver
+        setActivity("AutoGrass",CONFIG.AutoGrass and "EM ESPERA" or "DESATIVADO")
+        setActivity("AutoFood",CONFIG.AutoFood and "EM ESPERA" or "DESATIVADO")
+        print("THE GOAT AUTO DIETA:",mode,"| animal:",tostring(species),
+            "| Grass:",CONFIG.AutoGrass,"| Food:",CONFIG.AutoFood)
+    end
+    return herbivore, species
+end
+
 local function getThirst()
     return getPercent("Thirst") or getPercent("Hydration")
 end
 
--- === AUTO QUEST V8.9.33 ===
+-- === AUTO QUEST V8.9.34 ===
 -- O jogo controla a lista de quests e os progressos. Este bloco so le a GUI.
 -- A GUI mostra 3 quests por aba; guardamos as ultimas quests vistas de cada aba.
 -- Coordenadas de Alder Creek, Beaver Ponds e Elk Crossing foram verificadas no jogo.
@@ -498,7 +528,7 @@ local function questIsDone(progress)
     return a ~= nil and b ~= nil and tonumber(b) > 0 and tonumber(a) >= tonumber(b)
 end
 
--- V8.9.33: a lista pode ter wrappers adicionais ou mudar de lugar na GUI.
+-- V8.9.34: a lista pode ter wrappers adicionais ou mudar de lugar na GUI.
 -- Procura os cards de quest de forma limitada e reutiliza o parser original.
 local questScanSource = "INICIANDO"
 local questScanAt = 0
@@ -853,7 +883,7 @@ local function faceTarget(root, target, immediate)
     end
 end
 
--- === V8.9.33: PROTECAO CONTRA AFOGAMENTO ===
+-- === V8.9.34: PROTECAO CONTRA AFOGAMENTO ===
 -- Nao modifica Terrain nem teleporta o personagem. O servidor ainda pode corrigir fisica.
 local waterParams = RaycastParams.new()
 waterParams.FilterType = Enum.RaycastFilterType.Include
@@ -1217,7 +1247,7 @@ task.spawn(function()
     end
 end)
 
-_G.TGFeralV8933 = {
+_G.TGFeralV8934 = {
     stop = stop,
     config = CONFIG,
     isActive = function() return active end,
@@ -1283,7 +1313,7 @@ _G.TGFeralV8933 = {
     end
 }
 
--- === PAINEL TIGER / AMBER PREMIUM V8.9.33 ===
+-- === PAINEL TIGER / AMBER PREMIUM V8.9.34 ===
 -- Interface Roblox real (nao a imagem estatica). Logo usa emoji de tigre,
 -- evitando rbxassetid inventado; pode-se informar um ID proprio opcional abaixo.
 do
@@ -1408,7 +1438,7 @@ do
             },emblem)
         end
         textLabel(header,"THE GOAT",19,C.white,offset(75,15),offset(201,25),true)
-        textLabel(header,"FERAL  |  V8.9.33 NEON",10,C.lime,offset(76,41),offset(225,18),true)
+        textLabel(header,"FERAL  |  V8.9.34 NEON",10,C.lime,offset(76,41),offset(225,18),true)
         local mini=uiNew("TextButton", {
             Name="Minimize", Position=UDim2.new(1,-45,0,16),Size=offset(30,30),
             Text="−",Font=Enum.Font.GothamBold,TextSize=20,TextColor3=C.white,
@@ -1625,13 +1655,13 @@ do
                 task.wait(1.2)
             end
         end)
-        print("PAINEL ALIEN NEON THE GOAT V8.9.33: pronto | sem X | minimiza com -")
+        print("PAINEL ALIEN NEON THE GOAT V8.9.34: pronto | sem X | minimiza com -")
     else
         warn("PAINEL THE GOAT: PlayerGui nao encontrado")
     end
 end
 
--- Inicia o scanner somente depois que _G.TGFeralV8933 existe.
+-- Inicia o scanner somente depois que _G.TGFeralV8934 existe.
 -- Dessa forma, nunca tenta acessar getQuests em um objeto nil.
 task.spawn(function()
     while active do
@@ -1644,7 +1674,7 @@ task.spawn(function()
     end
 end)
 
--- === V8.9.33 | ALVO MOVEL ===
+-- === V8.9.34 | ALVO MOVEL ===
 -- Posicao prevista + estimativa da velocidade; nao teleporta o personagem.
 -- O controlador de movimento continua unico e o anti-queda permanece ativo.
 local function makePreyTracker(npc, ourRoot, leadSeconds, maxLead)
@@ -2219,17 +2249,56 @@ pressE = function()
     end)
 end
 
--- === AUTO EAT GRASS V8.9.33 ===
+-- === AUTO EAT GRASS V8.9.34 ===
 -- Funciona com prompts REAIS (EAT/GRAZE), nao inventa RemoteEvents de grama.
 -- A estrutura exata dos patches no FERAL nao esta documentada nesta base:
 -- o scanner tenta tags e nomes fisicos comuns e confirma resultado por Hunger.
 local CollectionService = game:GetService("CollectionService")
 local grassFailures = setmetatable({}, {__mode = "k"})
+-- Uma falha pode ser um prompt EAT sem grama. Marca a POSICAO, nao somente
+-- a instancia do patch: no Terrain o mesmo objeto cobre o mapa inteiro.
+local failedGrassAreas = {}
+local function grassFailedArea(point)
+    if typeof(point) ~= "Vector3" then return false end
+    local now=os.clock()
+    for i=#failedGrassAreas,1,-1 do
+        local entry=failedGrassAreas[i]
+        if entry.untilAt<=now then
+            table.remove(failedGrassAreas,i)
+        elseif horizontal(point,entry.pos).Magnitude<CONFIG.GrassFailedAreaRadius then
+            return true
+        end
+    end
+    return false
+end
+local function markGrassFailedArea(point,reason)
+    if typeof(point) ~= "Vector3" then return end
+    if not grassFailedArea(point) then
+        table.insert(failedGrassAreas,{pos=point,
+            untilAt=os.clock()+CONFIG.GrassFailedAreaCooldown})
+        if #failedGrassAreas>24 then table.remove(failedGrassAreas,1) end
+    end
+    print("AUTO GRASS: local sem alimento valido, buscando OUTRA AREA |",
+        tostring(reason), "| XZ:",math.floor(point.X),math.floor(point.Z))
+end
+local grassTerrainParams=RaycastParams.new()
+grassTerrainParams.FilterType=Enum.RaycastFilterType.Include
+grassTerrainParams.FilterDescendantsInstances={Terrain}
+grassTerrainParams.IgnoreWater=true
 local grassDebug = {status="DESATIVADO", found=0, target=nil, distance=nil,
     lastPrompt=nil, lastHungerGain=nil, species=nil, scans=0}
 local lastGrassNotice = -math.huge
 local grassTags = {"GrassPatch", "GrassPatches", "EdibleGrass", "GrazingPatch", "Graze", "Grass", "FeralGrass"}
 
+local function grassPromptVisible(node, screen)
+    -- Prompt2 pode conservar EAT no TextLabel mesmo invisivel. Nao usar texto
+    -- de um widget oculto como prova de que existe grama no local atual.
+    while node and node ~= screen do
+        if node:IsA("GuiObject") and not node.Visible then return false end
+        node=node.Parent
+    end
+    return node==screen
+end
 local function grassPromptState()
     local text = promptState()
     local gui = player:FindFirstChild("PlayerGui")
@@ -2243,7 +2312,8 @@ local function grassPromptState()
                 local button=box and box:FindFirstChild("Button")
                 local chip=button and button:FindFirstChild("Chip")
                 local label=chip and chip:FindFirstChild("Text")
-                if label and label:IsA("TextLabel") then
+                if label and label:IsA("TextLabel")
+                    and grassPromptVisible(label,screen) then
                     local t=string.upper(label.Text)
                     if t=="EATING" or t=="EAT" or t:find("GRAZ",1,true) then
                         text=t
@@ -2285,7 +2355,7 @@ local function scanNearbyGrass()
     local now = os.clock()
     local function consider(instance, point, rank)
         if not instance or not instance.Parent or typeof(point) ~= "Vector3" then return end
-        if now < (grassFailures[instance] or 0) then return end
+        if now < (grassFailures[instance] or 0) or grassFailedArea(point) then return end
         local remaining = instance:GetAttribute("GrassLeft") or instance:GetAttribute("FoodLeft")
         if type(remaining) == "number" and remaining <= 0 then return end
         local distance = horizontal(root.Position, point).Magnitude
@@ -2334,6 +2404,32 @@ local function scanNearbyGrass()
             end
         end
     end
+    -- Terrain Grass nem sempre possui uma Part ou tag. O Hippo pode nao
+    -- encontrar nenhum patch nomeado mesmo quando ha gramado nas proximidades.
+    -- A amostra de Terrain e SOMENTE um candidato a testar; a confirmacao real
+    -- continua sendo o aumento de Hunger, nunca a simples cor do terreno.
+    if not best and CONFIG.GrassTerrainFallback then
+        local castCount=0
+        for _, radius in ipairs({30,55,90,130,175,215}) do
+            if best then break end
+            for i=0,11 do
+                local angle=i*math.pi/6+radius*0.007
+                local offset=Vector3.new(math.cos(angle)*radius,0,math.sin(angle)*radius)
+                local sample=root.Position+offset
+                local hit=workspace:Raycast(
+                    Vector3.new(sample.X,root.Position.Y+75,sample.Z),
+                    Vector3.new(0,-170,0),grassTerrainParams)
+                castCount += 1
+                if hit and (hit.Material==Enum.Material.Grass
+                    or hit.Material==Enum.Material.LeafyGrass)
+                    and hit.Normal.Y>=CONFIG.SafeGroundSlopeY
+                    and math.abs(root.Position.Y-hit.Position.Y)<=38 then
+                    consider(Terrain,hit.Position+Vector3.new(0,3,0),2)
+                end
+            end
+        end
+        grassDebug.terrainSamples=castCount
+    end
     grassDebug.scans += 1
     grassDebug.found = count
     grassDebug.target = best and best:GetFullName() or nil
@@ -2341,7 +2437,7 @@ local function scanNearbyGrass()
     return best, bestPoint, bestDistance
 end
 
--- === AUTO GRASS EXPLORADOR V8.9.33 ===
+-- === AUTO GRASS EXPLORADOR V8.9.34 ===
 -- Quando nao ha grama conhecida no raio local, avanca por terrenos secos
 -- usando o mesmo navegador seguro. Faz scan apenas AO REDOR do personagem,
 -- nao tenta varrer todo o workspace em um unico frame.
@@ -2389,7 +2485,8 @@ local function grassExploreDestination(root)
             and ground.Normal.Y>=CONFIG.SafeGroundSlopeY
             and math.abs(root.Position.Y-ground.Position.Y)<100 then
             local point=ground.Position + Vector3.new(0,3,0)
-            if horizontal(root.Position,point).Magnitude>35 then
+            if horizontal(root.Position,point).Magnitude>35
+                and not grassFailedArea(point) then
                 grassExplore.destination=point
                 return point
             end
@@ -2435,7 +2532,9 @@ local function exploreForGrass(char, hum, root, epoch, stopForWater)
             grassExplore.lastOutcome="INTERROMPIDO POR SEDE/FOME RECUPERADA"
             break
         end
-        if grassPromptState() then
+        -- EAT pode ser um prompt generico de comida, ou stale no Hippo.
+        -- Ignora EAT em local onde Feed nao aumentou Hunger.
+        if grassPromptState() and not grassFailedArea(root.Position) then
             found=true
             break
         end
@@ -2492,7 +2591,9 @@ local function autoGrazeOnce()
     end
     if stopForWater() then return false end
     local patch = nil
-    local prompt = grassPromptState()
+    -- O mesmo prompt EAT pode persistir em local sem grama comestivel.
+    -- Apos uma falha ele nao pode interromper a busca por outra area.
+    local prompt = not grassFailedArea(root.Position) and grassPromptState() or nil
     if not prompt then
         local target, point, distance = scanNearbyGrass()
         patch = target
@@ -2524,13 +2625,15 @@ local function autoGrazeOnce()
             and patch.Parent and os.clock()-started<CONFIG.GrassTravelTimeout do
             task.wait(0.3)
             if stopForWater() or (getHunger() or 100) >= CONFIG.GrassStop then break end
-            if grassPromptState() then arrived=true; break end
+            if grassPromptState() and not grassFailedArea(root.Position) then
+                arrived=true; break
+            end
             local d,reached,blocked=getDistance()
             if d+1.3 < lastDistance then lastDistance=d; stalledSince=os.clock() end
             if blocked or os.clock()-stalledSince>=CONFIG.StuckTimeout then break end
             if reached or d<=5.5 then
                 task.wait(1.1)
-                arrived=grassPromptState()~=nil or
+                arrived=(grassPromptState()~=nil and not grassFailedArea(root.Position)) or
                     (horizontal(root.Position,point).Magnitude<=7 and
                         math.abs(root.Position.Y-point.Y)<=10)
                 break
@@ -2545,7 +2648,8 @@ local function autoGrazeOnce()
             arrived=true
         end
         if not arrived then
-            grassFailures[patch]=os.clock()+CONFIG.GrassFailedCooldown
+            if patch~=Terrain then grassFailures[patch]=os.clock()+CONFIG.GrassFailedCooldown end
+            markGrassFailedArea(point,"PATCH SEM PROMPT/SEM ACESSO")
             grassDebug.status="PATCH SEM PROMPT"
             setActivity("AutoGrass", "TENTANDO OUTRA GRAMA")
             return false
@@ -2572,7 +2676,8 @@ local function autoGrazeOnce()
         if stopForWater() then break end
         local state=grassPromptState()
         local nearPatch=patch and patch.Parent and
-            horizontal(root.Position,patch:GetPivot().Position).Magnitude<=12
+            ((patch==Terrain and point and horizontal(root.Position,point).Magnitude<=12)
+                or (patch~=Terrain and horizontal(root.Position,patch:GetPivot().Position).Magnitude<=12))
         -- Com Roblox minimizado a GUI pode ficar desatualizada; a proximidade
         -- de um patch previamente localizado permite testar Feed sem tecla E.
         if state=="EATING" and os.clock()-lastGain<=4 then
@@ -2605,13 +2710,14 @@ local function autoGrazeOnce()
                 print("AUTO GRASS: alimentacao confirmada | FOOD",math.floor(after),"%")
             end
         end
-        if os.clock()-lastGain>16 then break end
+        if os.clock()-lastGain>CONFIG.GrassFeedNoGainSeconds then break end
     end
     if confirmed then
         grassDebug.status="COMEU (CONFIRMADO)"
         return true
     end
-    if patch then grassFailures[patch]=os.clock()+CONFIG.GrassFailedCooldown end
+    if patch and patch~=Terrain then grassFailures[patch]=os.clock()+CONFIG.GrassFailedCooldown end
+    markGrassFailedArea(root.Position,"FEED SEM AUMENTO DE HUNGER")
     grassDebug.status="SEM AUMENTO DE FOME"
     if os.clock()-lastGrassNotice>=12 then
         warn("AUTO GRASS: prompt nao resultou em aumento de Hunger; mudando de patch")
@@ -2620,7 +2726,7 @@ local function autoGrazeOnce()
     return false
 end
 
-_G.TGFeralV8933.getFeedDebug = function()
+_G.TGFeralV8934.getFeedDebug = function()
     return {lastAction=feedDebug.lastAction, lastMethod=feedDebug.lastMethod,
         lastAt=feedDebug.lastAt, lastError=feedDebug.lastError,
         remoteAttempts=feedDebug.remoteAttempts,
@@ -2628,13 +2734,15 @@ _G.TGFeralV8933.getFeedDebug = function()
         keyboardFallbacks=feedDebug.keyboardFallbacks,
         windowFocused=windowFocused}
 end
-_G.TGFeralV8933.getHerbivoreStatus = function()
+_G.TGFeralV8934.getHerbivoreStatus = function()
     local isHerbivore, species = herbivoreState()
     return {herbivore=isHerbivore, species=species,
-        autoGrass=CONFIG.AutoGrass, hunger=getHunger(),
-        activity=activity.AutoGrass, prompt=grassPromptState()}
+        autoGrass=CONFIG.AutoGrass, autoFood=CONFIG.AutoFood,
+        autoDietSwitch=CONFIG.AutoDietSwitch, dietMode=dietSwitchState.mode,
+        hunger=getHunger(), activity=activity.AutoGrass,
+        prompt=grassPromptState()}
 end
-_G.TGFeralV8933.getGrassDebug = function()
+_G.TGFeralV8934.getGrassDebug = function()
     local status={}
     for k,v in pairs(grassDebug) do status[k]=v end
     status.exploreEnabled=CONFIG.GrassExploreEnabled
@@ -2643,9 +2751,11 @@ _G.TGFeralV8933.getGrassDebug = function()
     status.exploreReached=grassExplore.reached
     status.exploreDestination=grassExplore.destination
     status.exploreLastOutcome=grassExplore.lastOutcome
+    status.failedAreas=#failedGrassAreas
+    status.dietMode=dietSwitchState.mode
     return status
 end
-_G.TGFeralV8933.scanGrass = function()
+_G.TGFeralV8934.scanGrass = function()
     local obj, pos, distance = scanNearbyGrass()
     return {target=obj and obj:GetFullName() or nil,
         position=pos, distance=distance, candidates=grassDebug.found}
@@ -2686,7 +2796,7 @@ local function pressRestKey(method, holdSeconds)
     return ok,err,method
 end
 
--- V8.9.33: bloqueia a automacao ate CONFIRMAR que o lobo levantou.
+-- V8.9.34: bloqueia a automacao ate CONFIRMAR que o lobo levantou.
 -- Se a animacao custom nao expuser estado, exige confirmacao visual manual.
 local restGuard = {
     blocked=false, character=nil, knownRestTracks={}, observedRest=false,
@@ -2831,13 +2941,13 @@ local function restGateReady()
         warn("AUTO QUEST REST: CAÇA/TRAVEL/FOOD/DRINK BLOQUEADOS; " ..
             "saida do descanso ainda nao confirmada | " .. tostring(restGuard.lastSource))
         warn("AUTO QUEST REST: se o lobo JA estiver em pe, use " ..
-            "_G.TGFeralV8933.confirmStanding() apos conferir visualmente")
+            "_G.TGFeralV8934.confirmStanding() apos conferir visualmente")
     end
     return false
 end
 
 -- Diagnostic API methods are registered only after rest helpers exist.
-_G.TGFeralV8933.getRestStatus = function()
+_G.TGFeralV8934.getRestStatus = function()
     local char,hum=actor()
     local resting,source=nil,"sem personagem"
     if char and hum then resting,source=detectResting(char,hum) end
@@ -2847,7 +2957,7 @@ _G.TGFeralV8933.getRestStatus = function()
         inputOK=restGuard.lastInputOK, progress=restGuard.lastProgress,
         failedStarts=restGuard.failedStarts, inputError=restGuard.lastInputError}
 end
-_G.TGFeralV8933.confirmStanding = function()
+_G.TGFeralV8934.confirmStanding = function()
     if not restGuard.blocked then return true end
     local char,hum=actor()
     if not char or not hum then return false end
@@ -3224,7 +3334,7 @@ safeRescueConnection=RunService.Heartbeat:Connect(function()
     end
 end)
 
--- === AUTO DRINK V8.9.33: MARGEM SEGURA, NAO VOXEL DE AGUA ===
+-- === AUTO DRINK V8.9.34: MARGEM SEGURA, NAO VOXEL DE AGUA ===
 -- Escolhe solo seco ao lado da agua e recusa lago abaixo de barranco.
 -- Nao reduz a protecao anti-queda nem altera o Terrain.
 local failedWater = {}
@@ -3301,7 +3411,7 @@ local function findAccessibleBank(waterPos, fromPos)
     return bestBank
 end
 
--- === DESNIVEL V8.9.33: A* SOBRE SOLO TRANSITAVEL ===
+-- === DESNIVEL V8.9.34: A* SOBRE SOLO TRANSITAVEL ===
 -- So cria uma rota se encontrar um caminho continuo por terra ate a margem.
 -- Nao aumenta SafeMaxDrop, nao teleporta, nao pula e nao edita o Terrain.
 local descentWetRay=RaycastParams.new()
@@ -3963,12 +4073,12 @@ local function drinkOnce()
     end
 end
 
--- === AUTO QUEST DE BEBER EM LOCAL ESPECIFICO V8.9.33 ===
+-- === AUTO QUEST DE BEBER EM LOCAL ESPECIFICO V8.9.34 ===
 -- Usa pontos que o usuario testou fazendo a missao chegar a DONE.
 -- Nao confunde uma fonte qualquer com Alder Creek / Beaver Ponds.
 local namedDrinkRetryAt = {}
 
--- V8.9.33: diagnostico nao invasivo da prioridade das missoes.
+-- V8.9.34: diagnostico nao invasivo da prioridade das missoes.
 -- Permite verificar por que a missao Great Falls foi ou nao iniciada.
 local questDecisionStatus = {
     phase = "AGUARDANDO PRIMEIRO CICLO", detail = "", lastAt = os.clock(),
@@ -3986,7 +4096,7 @@ local function reportQuestDecision(phase, detail)
         questDecisionStatus.printedAt = now
     end
 end
-_G.TGFeralV8933.getQuestDecisionStatus = function()
+_G.TGFeralV8934.getQuestDecisionStatus = function()
     return {
         phase = questDecisionStatus.phase,
         detail = questDecisionStatus.detail,
@@ -4162,7 +4272,7 @@ local function doNamedDrinkQuest(quest)
     return false
 end
 
--- === AUTO QUEST V8.9.33: LOCAIS, REST E TERRITORIO ===
+-- === AUTO QUEST V8.9.34: LOCAIS, REST E TERRITORIO ===
 local visitRetryAt, restRetryAt, territoryRetryAt={},{},{}
 
 local function namedVisitWaypoint(q)
@@ -4298,7 +4408,7 @@ local function visitNamedQuest(q)
     end
 end
 
--- V8.9.33: o log "R enviado" nunca foi prova de que o FERAL recebeu a tecla.
+-- V8.9.34: o log "R enviado" nunca foi prova de que o FERAL recebeu a tecla.
 -- Inicia por VIM, confirma o progresso real da quest e so entao trava as
 -- automacoes ate confirmar a saida do descanso. Sem progresso: cooldown.
 local function doRestQuest(q)
@@ -4750,7 +4860,7 @@ local function autoTravelQuest(requestedQuest)
     end
 end
 
-print("=== THE GOAT FERAL V8.9.33 AUTO QUEST | SESSAO " .. sessionID .. " ===")
+print("=== THE GOAT FERAL V8.9.34 AUTO QUEST | SESSAO " .. sessionID .. " ===")
 print("Fome:", tostring(getHunger()))
 print("Ativa <=", CONFIG.HungerStart, "| Para >=", CONFIG.HungerStop)
 print("Raio de caca:", CONFIG.HuntRadius, "| Raio de carcaça:", CONFIG.CarcassRadius)
@@ -4760,7 +4870,7 @@ print("Thirst/Hydration:", tostring(getThirst()))
 print("Auto Drink: start", CONFIG.DrinkStart, "stop", CONFIG.DrinkStop, "raio de busca Terrain", CONFIG.WaterSearchRadius, "scan local", CONFIG.WaterLocalRadius, "speed", CONFIG.WaterMoveSpeed)
 print("AUTO QUEST: monitorando QUICK e DAILY | quest comida: Hunger <= " .. CONFIG.QuestEatStart)
 print("PAINEL: Auto Drink", CONFIG.AutoDrink, "Auto Food", CONFIG.AutoFood, "Auto Grass", CONFIG.AutoGrass, "Auto Quest", CONFIG.AutoQuest)
-print("FEED V8.9.33: WolfActions / Feed / eat-drink (teste com janela minimizada pendente)")
+print("FEED V8.9.34: WolfActions / Feed / eat-drink (teste com janela minimizada pendente)")
 print("AUTO QUEST DISTANCIA:", CONFIG.QuestTravelEnabled and "ON" or "OFF",
     "| speed:", CONFIG.QuestTravelSpeed, "| trecho:", CONFIG.QuestTravelLegStuds)
 print("AUTO QUEST AGUA: Alder Creek confirmado", tostring(CONFIG.AlderCreekDrinkPos))
@@ -4780,9 +4890,9 @@ print("TRAVESSIA AGUA:",CONFIG.WaterAllowCrossing and "LIBERADA" or "COM DESVIOS
     "| nado",CONFIG.WaterSwimSpeed,"studs/s | resgate apos",
     CONFIG.WaterRescueAfterStuckSeconds,"s SEM PROGRESSO")
 print("GET AMBER: caca normal, 1 NPC por vez | alcance", CONFIG.AttackDistance, "studs | intervalo", CONFIG.AttackInterval, "s")
-print("AUTO MOVE SEGURO V8.9.33: corrida ate", CONFIG.SafeMaxSpeed, "| desvio ate", CONFIG.NavCornerSpeed,
+print("AUTO MOVE SEGURO V8.9.34: corrida ate", CONFIG.SafeMaxSpeed, "| desvio ate", CONFIG.NavCornerSpeed,
     "| anti-queda e anti-trava | travessia da agua mantida")
-print("LOG NAV: print(_G.TGFeralV8933.getNavLog())")
+print("LOG NAV: print(_G.TGFeralV8934.getNavLog())")
 print("AUTO QUEST CACA: Catch a mouse e Hunt a herbivore incluidos com selecao sem bloqueio")
 print("MAPA: aliases MapSpots carregados; coordenadas capturadas sempre tem prioridade")
 print("AUTO QUEST LOCAL: Golden Plains", tostring(CONFIG.GoldenPlainsVisitPos))
@@ -4792,21 +4902,21 @@ print("AUTO QUEST LOCAL: Explore Granite Basin [DONE confirmado]", tostring(CONF
 print("AUTO DRINK MARGEM: buscando margem seca acessivel | desnivel max proximo:",CONFIG.WaterBankMaxNearbyDrop)
 print("AUTO DRINK DESCIDA: busca autonoma",CONFIG.WaterDescentEnabled and "ON" or "OFF",
     "| raio",CONFIG.WaterDescentSearchRadius,"| sem saltar e sem alterar protecao de queda")
-print("STATUS DESCIDA: print(_G.TGFeralV8933.getDescentStatus().last)")
+print("STATUS DESCIDA: print(_G.TGFeralV8934.getDescentStatus().last)")
 print("AUTO QUEST AGUA: Golden Waterhole", tostring(CONFIG.GoldenWaterholeDrinkPos))
 print("SEGURANCA AGUA:",CONFIG.WaterSafetyEnabled)
 print("AUTO QUEST LOCAL: Elk Crossing confirmado", tostring(CONFIG.ElkCrossingVisitPos))
 print("AUTO QUEST AGUA: Drink at Elk Crossing (aguarda DONE)", tostring(CONFIG.ElkCrossingDrinkPos))
 print("AUTO QUEST: Rest for 90s (R) e Claim a territory habilitados")
-print("AUTO QUEST REST V8.9.33: tenta R via VIM, depois executor; exige progresso real na GUI")
+print("AUTO QUEST REST V8.9.34: tenta R via VIM, depois executor; exige progresso real na GUI")
 print("AUTO QUEST REST: se R nao for reconhecido, faz pausa e segue outras quests; nao entra em bloqueio falso")
-print("REST STATUS: print(_G.TGFeralV8933.getRestStatus())")
+print("REST STATUS: print(_G.TGFeralV8934.getRestStatus())")
 print("AUTO RESPAWN: somente botao RESPAWN gratuito na morte confirmada")
-print("RESPAWN STATUS: print(_G.TGFeralV8933.getRespawnStatus())")
+print("RESPAWN STATUS: print(_G.TGFeralV8934.getRespawnStatus())")
 print("STATUS: ATIVO | Painel Drink / Food / Grass / Quest / Get Amber | Speed", CONFIG.Speed)
 print("GET AMBER: " .. (CONFIG.GetAmber and "ON" or "OFF") ..
     " | independente de Auto Quest; exige HP alto, Food e Drink ON")
-print("AUTO GRASS: OFF por padrao | herbivoros 🌿 | scanner local",CONFIG.GrassSearchRadius,
+print("AUTO GRASS: AUTO POR DIETA | herbivoros 🌿 | scanner local",CONFIG.GrassSearchRadius,
     "| EXPLORADOR",CONFIG.GrassExploreEnabled and "ON" or "OFF",
     "| busca por setores ate",CONFIG.GrassExploreMaxRadius,"studs")
 if CONFIG.AutoDrink and getThirst() == nil then
@@ -4817,7 +4927,7 @@ local feeding = false
 local drinking = false
 local grazing = false
 
--- === AUTO RESPAWN V8.9.33 (somente botao gratuito RESPAWN) ===
+-- === AUTO RESPAWN V8.9.34 (somente botao gratuito RESPAWN) ===
 -- Preserva as rotinas e o painel. Nao usa RESPAWN como comando de servidor inventado.
 -- Evita REVIVE, CHANGE ANIMAL e qualquer botao pago.
 -- Tenta sinais de UI se executor os expuser; clique virtual somente em janela focada.
@@ -4951,7 +5061,7 @@ local function requestRespawn(button,attempt)
     end
 end
 
-_G.TGFeralV8933.getRespawnStatus=function()
+_G.TGFeralV8934.getRespawnStatus=function()
     local _,hum=actor()
     return {
         enabled=CONFIG.AutoRespawn, dead=respawnState.dead,
@@ -5090,7 +5200,7 @@ task.spawn(function()
                 warn("Atributo Hunger nao encontrado")
                 task.wait(3)
             else
-                local herbivore = herbivoreState()
+                local herbivore = syncAutoDiet()
                 local grassMode = CONFIG.AutoGrass and herbivore == true
                 local grassQuest = grassMode and CONFIG.AutoQuest and questPending("PASTO") or nil
                 local grassTrigger = grassQuest and math.max(CONFIG.GrassStart, CONFIG.QuestEatStart) or CONFIG.GrassStart
@@ -5347,36 +5457,37 @@ task.spawn(function()
     end
     runtimeStatus.recovering = false
     stop()
-    print("THE GOAT FERAL V8.9.33 SESSAO " .. sessionID .. " DESLIGADA")
+    print("THE GOAT FERAL V8.9.34 SESSAO " .. sessionID .. " DESLIGADA")
 end)
 
 -- Para desligar no console:
--- if _G.TGFeralV8933 then _G.TGFeralV8933.stop() end  -- encerrar tudo (nao ha X)
--- Status: print(_G.TGFeralV8933 and _G.TGFeralV8933.isActive())
--- Get Amber livre: _G.TGFeralV8933.config.GetAmber = true (prefira o botao do painel)
--- Grass: AUTO EAT GRASS inicia ON e so pasta com especie herbivora identificada.
--- Debug: print(_G.TGFeralV8933.getGrassDebug().status)
--- Especie: print(_G.TGFeralV8933.getHerbivoreStatus().species)
--- Scan manual: print(_G.TGFeralV8933.scanGrass().target)
+-- if _G.TGFeralV8934 then _G.TGFeralV8934.stop() end  -- encerrar tudo (nao ha X)
+-- Status: print(_G.TGFeralV8934 and _G.TGFeralV8934.isActive())
+-- Get Amber livre: _G.TGFeralV8934.config.GetAmber = true (prefira o botao do painel)
+-- Grass e Food: AutoDietSwitch escolhe ON pelo animal reconhecido.
+-- Quest e Aura: sempre iniciam OFF, o usuario decide pelo painel.
+-- Debug: print(_G.TGFeralV8934.getGrassDebug().status)
+-- Especie: print(_G.TGFeralV8934.getHerbivoreStatus().species)
+-- Scan manual: print(_G.TGFeralV8934.scanGrass().target)
 -- Se nenhuma grama for encontrada, envie logs/nomes dos patches para refinar scanner.
--- Descida: print(_G.TGFeralV8933.getDescentStatus().last)
--- Descida OFF: _G.TGFeralV8933.config.WaterDescentEnabled=false
+-- Descida: print(_G.TGFeralV8934.getDescentStatus().last)
+-- Descida OFF: _G.TGFeralV8934.config.WaterDescentEnabled=false
 -- O Get Amber nao exige AutoQuest ON, nem quests DONE, nem leitura de QUICK/DAILY.
 -- Com ambos ON, Get Amber tem prioridade; desligue Get Amber para retomar as quests.
--- Abates: print(_G.TGFeralV8933.getAmberKills())
+-- Abates: print(_G.TGFeralV8934.getAmberKills())
 -- Get Amber usa apenas AmberSpecies (Deer, Otter, Fox).
--- Missoes: for _, q in ipairs(_G.TGFeralV8933.getQuests()) do print(q.title, q.progress, q.category) end
--- Scanner: print(_G.TGFeralV8933.getQuestScannerStatus().source)
--- Prioridade: print(_G.TGFeralV8933.getQuestDecisionStatus().phase, _G.TGFeralV8933.getQuestDecisionStatus().detail)
+-- Missoes: for _, q in ipairs(_G.TGFeralV8934.getQuests()) do print(q.title, q.progress, q.category) end
+-- Scanner: print(_G.TGFeralV8934.getQuestScannerStatus().source)
+-- Prioridade: print(_G.TGFeralV8934.getQuestDecisionStatus().phase, _G.TGFeralV8934.getQuestDecisionStatus().detail)
 
--- Descanso: print(_G.TGFeralV8933.getRestStatus())
+-- Descanso: print(_G.TGFeralV8934.getRestStatus())
 -- Se o jogo nao expuser animacao/estado, confirme VISUALMENTE o lobo em pe
--- e somente depois: print(_G.TGFeralV8933.confirmStanding())
+-- e somente depois: print(_G.TGFeralV8934.confirmStanding())
 
 
 end
 
-print("THE GOAT: iniciando V8.9.33 | Aura V2 integrada | Auto Respawn")
+print("THE GOAT: iniciando V8.9.34 | Aura V2 integrada | Auto Respawn")
 local ok, falha = xpcall(iniciarTheGoat, function(err)
     if debug and type(debug.traceback) == "function" then
         return debug.traceback(tostring(err), 2)
@@ -5387,6 +5498,6 @@ if not ok then
     warn("THE GOAT: falha na inicializacao | " .. tostring(falha))
 end
 
--- AURA: _G.TGFeralV8933.getAuraStatus().target
--- AURA ON/OFF: _G.TGFeralV8933.setAuraEnabled(true) / (false)
--- ALCANCE: _G.TGFeralV8933.setAuraRange(60)
+-- AURA: _G.TGFeralV8934.getAuraStatus().target
+-- AURA ON/OFF: _G.TGFeralV8934.setAuraEnabled(true) / (false)
+-- ALCANCE: _G.TGFeralV8934.setAuraRange(60)
