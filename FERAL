@@ -1,4 +1,4 @@
--- THE GOAT FERAL V8.9.35B - AUTO QUEST | AURA INTEGRADA | FIX AUTO GRASS HIPPO
+-- THE GOAT FERAL V8.9.34 - AUTO QUEST | AURA INTEGRADA | FIX AUTO GRASS HIPPO
 -- CORRECAO: Auto Grass para Hippo e demais herbivoros; Great Falls, Aura V2 e demais rotinas preservadas.
 -- Preserva Auto Drink, descida automatica, Auto Food, Auto Quest e painel da V8.9.31.
 -- BASE: V8.9.23, com as funcoes e melhorias preservadas da V8.9.21.
@@ -8,170 +8,6 @@
 -- Para Potassium ou executores Luau compativeis.
 -- A rotina de caca e o Get Amber originais nao foram substituidos.
 -- Get Amber persegue um NPC por vez e aguarda o ataque manual.
-
--- Motor de estamina em FUNCAO SEPARADA: evita ultrapassar o limite de locais no inicializador do THE GOAT.
--- Experimental: o cliente pode nao controlar a estamina real mantida pelo servidor.
-local function criarMonitorStamina(player, CONFIG, isActive)
--- === V8.9.35 | ESTAMINA INFINITA (TENTATIVA CLIENTE) ===
--- O jogo FERAL pode controlar a stamina no servidor ou numa variavel local privada.
--- Modifica SOMENTE atributos/NumberValue/IntValue com nomes reconhecidos de stamina;
--- nunca altera Hunger/Thirst, velocidade, remotes nem valores de outros jogadores.
--- Se o jogo nao expuser stamina, informa isso sem fingir que funcionou.
-local staminaNames = {
-    stamina=true, currentstamina=true, staminavalue=true,
-    sprintstamina=true, runstamina=true, staminacurrent=true,
-    staminapercent=true, staminapercentage=true
-}
-local staminaMaxNames = {"MaxStamina", "StaminaMax", "StaminaCapacity", "StaminaMaximum"}
-local staminaSources = {}
-local staminaCharacter = nil
-local staminaNextScanAt = 0
-local staminaLastMissingLog = 0
-local staminaStatus = {
-    sources=0, writes=0, last="NAO VERIFICADO", lastValue=nil,
-    target=nil, lastWriteAt=0, lastScanAt=0, error=nil
-}
-
-local function staminaTarget(holder, current)
-    local limit=nil
-    for _, key in ipairs(staminaMaxNames) do
-        local attr=holder:GetAttribute(key)
-        if type(attr)=="number" and attr>0 and attr==attr then
-            limit=attr
-            break
-        end
-        local obj=holder:FindFirstChild(key)
-        if obj and (obj:IsA("NumberValue") or obj:IsA("IntValue")) and obj.Value>0 then
-            limit=obj.Value
-            break
-        end
-    end
-    -- Escala 0..1 sem MaxStamina: preserva a escala; caso contrario usa ate 100.
-    if not limit then
-        if current>=0 and current<=1 then limit=1
-        else limit=math.max(CONFIG.StaminaFallbackMax,current) end
-    end
-    return math.clamp(limit, 0.001, 100000)
-end
-
-local function staminaScan()
-    local char=player.Character
-    staminaCharacter=char
-    staminaSources={}
-    staminaStatus.lastScanAt=os.clock()
-    local seen={}
-    local nodes=0
-    local function collect(inst, depth)
-        if not inst or seen[inst] or depth>4 or nodes>=1700 then return end
-        if inst:IsA("PlayerGui") or inst:IsA("Backpack") or inst:IsA("PlayerScripts") then return end
-        seen[inst]=true
-        nodes+=1
-        local ok, attrs=pcall(function() return inst:GetAttributes() end)
-        if ok then
-            for key,value in pairs(attrs) do
-                if staminaNames[tostring(key):lower():gsub("[^%a]","")]
-                    and type(value)=="number" and value==value then
-                    table.insert(staminaSources,{kind="attribute",inst=inst,key=key,
-                        target=staminaTarget(inst,value)})
-                end
-            end
-        end
-        if (inst:IsA("NumberValue") or inst:IsA("IntValue"))
-            and staminaNames[inst.Name:lower():gsub("[^%a]","")] then
-            table.insert(staminaSources,{kind="value",inst=inst,key="Value",
-                target=staminaTarget(inst.Parent or inst,inst.Value)})
-        end
-        if depth<4 then
-            for _,child in ipairs(inst:GetChildren()) do
-                collect(child,depth+1)
-                if nodes>=1700 then break end
-            end
-        end
-    end
-    if char then collect(char,0) end
-    collect(player,0)
-    staminaStatus.sources=#staminaSources
-    if #staminaSources==0 then
-        staminaStatus.last="SEM FONTE DE STAMINA ACESSIVEL"
-    else
-        local source=staminaSources[1]
-        staminaStatus.last="FONTE LOCAL: "..source.inst:GetFullName().." / "..source.key
-        print("THE GOAT STAMINA:",#staminaSources,"fonte(s) encontrada(s) |",
-            staminaStatus.last)
-    end
-    return #staminaSources
-end
-
-local function staminaTick()
-    if not CONFIG.InfiniteStamina then return end
-    local now=os.clock()
-    if player.Character~=staminaCharacter or now>=staminaNextScanAt then
-        staminaScan()
-        staminaNextScanAt=now+CONFIG.StaminaScanSeconds
-    end
-    if #staminaSources==0 then
-        if now-staminaLastMissingLog>30 then
-            warn("THE GOAT STAMINA: sem atributo/valor acessivel; estamina infinita nao confirmada")
-            staminaLastMissingLog=now
-        end
-        return
-    end
-    for _,source in ipairs(staminaSources) do
-        local inst=source.inst
-        if inst and inst.Parent then
-            local ok,value=pcall(function()
-                if source.kind=="attribute" then return inst:GetAttribute(source.key) end
-                return inst.Value
-            end)
-            if ok and type(value)=="number" and value==value then
-                local target=math.max(source.target,value)
-                staminaStatus.lastValue=value
-                staminaStatus.target=target
-                if value<target-0.001 then
-                    local writeOk,err=pcall(function()
-                        if source.kind=="attribute" then inst:SetAttribute(source.key,target)
-                        else inst.Value=target end
-                    end)
-                    if writeOk then
-                        staminaStatus.writes+=1
-                        staminaStatus.lastWriteAt=now
-                        staminaStatus.last="REPOSICAO LOCAL TENTADA: "..source.key
-                    else
-                        staminaStatus.error=tostring(err)
-                        staminaStatus.last="ERRO AO REPOR: "..source.key
-                    end
-                end
-            end
-        end
-    end
-end
-
-    local api = {}
-    api.getStatus = function()
-        return {enabled=CONFIG.InfiniteStamina, sources=staminaStatus.sources,
-            writes=staminaStatus.writes, last=staminaStatus.last,
-            lastValue=staminaStatus.lastValue, target=staminaStatus.target,
-            lastWriteAt=staminaStatus.lastWriteAt, lastScanAt=staminaStatus.lastScanAt,
-            error=staminaStatus.error}
-    end
-    api.scan = staminaScan
-    api.setEnabled = function(enabled)
-        CONFIG.InfiniteStamina=(enabled==true)
-        staminaNextScanAt=0
-        return CONFIG.InfiniteStamina
-    end
-    task.spawn(function()
-        while isActive() do
-            local ok,err=pcall(staminaTick)
-            if not ok then
-                staminaStatus.error=tostring(err)
-                staminaStatus.last="ERRO: "..tostring(err)
-            end
-            task.wait(math.max(0.08,CONFIG.StaminaTickSeconds))
-        end
-    end)
-    return api
-end
 
 local function iniciarTheGoat()
 local Players = game:GetService("Players")
@@ -200,10 +36,10 @@ for _, eventName in ipairs({"WindowFocused", "WindowFocusReleased"}) do
     end
 end
 
--- Desliga versoes antigas antes de iniciar a V8.9.35.
+-- Desliga versoes antigas antes de iniciar a V8.9.34.
 _G.TGAutoEat = (_G.TGAutoEat or 0) + 1
 _G.TGFeralDrinkSession = (_G.TGFeralDrinkSession or 0) + 1
-for _, name in ipairs({"TGFeralEatV2", "TGFeralEatV3", "TGFeralEatV4", "TGFeralEatV5", "TGFeralHuntV6", "TGFeralV7", "TGFeralV8", "TGFeralV81", "TGFeralV82", "TGFeralV83", "TGFeralV84", "TGFeralV85", "TGFeralV86", "TGFeralV87", "TGFeralV88", "TGFeralV89", "TGFeralV891", "TGFeralV892", "TGFeralV893", "TGFeralV894", "TGFeralV895", "TGFeralV896", "TGFeralV897", "TGFeralV898", "TGFeralV899", "TGFeralV8910", "TGFeralV8911", "TGFeralV8912", "TGFeralV8913", "TGFeralV8914", "TGFeralV8915", "TGFeralV8916", "TGFeralV8917", "TGFeralV8918", "TGFeralV8919", "TGFeralV8920", "TGFeralV8921", "TGFeralV8922", "TGFeralV8923", "TGFeralV8924", "TGFeralV8925", "TGFeralV8927", "TGFeralV8928", "TGFeralV8929", "TGFeralV8930", "TGFeralV8931", "TGFeralV8932", "TGFeralV8933", "TGFeralV8934", "TGFeralV8935", "TGAttackLab", "TGAttackLabV2"}) do
+for _, name in ipairs({"TGFeralEatV2", "TGFeralEatV3", "TGFeralEatV4", "TGFeralEatV5", "TGFeralHuntV6", "TGFeralV7", "TGFeralV8", "TGFeralV81", "TGFeralV82", "TGFeralV83", "TGFeralV84", "TGFeralV85", "TGFeralV86", "TGFeralV87", "TGFeralV88", "TGFeralV89", "TGFeralV891", "TGFeralV892", "TGFeralV893", "TGFeralV894", "TGFeralV895", "TGFeralV896", "TGFeralV897", "TGFeralV898", "TGFeralV899", "TGFeralV8910", "TGFeralV8911", "TGFeralV8912", "TGFeralV8913", "TGFeralV8914", "TGFeralV8915", "TGFeralV8916", "TGFeralV8917", "TGFeralV8918", "TGFeralV8919", "TGFeralV8920", "TGFeralV8921", "TGFeralV8922", "TGFeralV8923", "TGFeralV8924", "TGFeralV8925", "TGFeralV8927", "TGFeralV8928", "TGFeralV8929", "TGFeralV8930", "TGFeralV8931", "TGFeralV8932", "TGFeralV8933", "TGFeralV8934", "TGAttackLab", "TGAttackLabV2"}) do
     local old = _G[name]
     if type(old) == "table" and type(old.stop) == "function" then
         pcall(old.stop)
@@ -226,17 +62,12 @@ local CONFIG = {
     AuraMaxRange = 100,
     AuraAttackInterval = 0.8,
     AuraBiteHitDelay = 0.12,
-    -- Estamina infinita experimental: procura valores locais, nao altera regras do servidor.
-    InfiniteStamina = true,
-    StaminaTickSeconds = 0.12, -- frequencia moderada; sem loop a cada frame
-    StaminaScanSeconds = 3.0,
-    StaminaFallbackMax = 100, -- usado somente quando nao ha atributo MaxStamina
     -- AUTO DIETA: ativa apenas a alimentacao apropriada ao animal reconhecido.
     AutoDietSwitch = true,
     AutoGrass = false, -- sera ativado para herbivoros identificados (Hippo, Elephant etc.)
     GrassStart = 80,            -- comeca a pastar
     GrassStop = 95,             -- para quando alimentado
-    FeedRemoteFirst = true,     -- V8.9.35: WolfActions Feed (funciona sem simular E)
+    FeedRemoteFirst = true,     -- V8.9.34: WolfActions Feed (funciona sem simular E)
     FeedFallbackKey = true,    -- tecla E apenas se comando remoto nao puder ser enviado
     GrassSearchRadius = 220,   -- buscar patches proximos, sem scan global pesado
     GrassScanMaxParts = 1600,
@@ -410,8 +241,8 @@ local active = true
 local controlsEpoch = 0 -- interrompe operacoes antigas quando qualquer botao muda
 local destroyPanel = nil
 local stopQuestTabHooks = nil
-_G.TGFeralV8935Counter = (_G.TGFeralV8935Counter or 0) + 1
-local sessionID = _G.TGFeralV8935Counter
+_G.TGFeralV8934Counter = (_G.TGFeralV8934Counter or 0) + 1
+local sessionID = _G.TGFeralV8934Counter
 local movementConnection = nil
 local movementHum, movementRoot, savedWalkSpeed = nil, nil, nil
 local savedAutoRotate, savedAlign, savedAlignEnabled = nil, nil, nil
@@ -452,9 +283,6 @@ local function actor()
     if not hum or not root then return nil end
     return character, hum, root
 end
-
--- Apenas uma referencia local adicional dentro do inicializador principal.
-local staminaEngine = criarMonitorStamina(player, CONFIG, function() return active end)
 
 local function horizontal(a, b)
     return Vector3.new(b.X - a.X, 0, b.Z - a.Z)
@@ -591,7 +419,7 @@ local function getThirst()
     return getPercent("Thirst") or getPercent("Hydration")
 end
 
--- === AUTO QUEST V8.9.35 ===
+-- === AUTO QUEST V8.9.34 ===
 -- O jogo controla a lista de quests e os progressos. Este bloco so le a GUI.
 -- A GUI mostra 3 quests por aba; guardamos as ultimas quests vistas de cada aba.
 -- Coordenadas de Alder Creek, Beaver Ponds e Elk Crossing foram verificadas no jogo.
@@ -700,7 +528,7 @@ local function questIsDone(progress)
     return a ~= nil and b ~= nil and tonumber(b) > 0 and tonumber(a) >= tonumber(b)
 end
 
--- V8.9.35: a lista pode ter wrappers adicionais ou mudar de lugar na GUI.
+-- V8.9.34: a lista pode ter wrappers adicionais ou mudar de lugar na GUI.
 -- Procura os cards de quest de forma limitada e reutiliza o parser original.
 local questScanSource = "INICIANDO"
 local questScanAt = 0
@@ -1055,7 +883,7 @@ local function faceTarget(root, target, immediate)
     end
 end
 
--- === V8.9.35: PROTECAO CONTRA AFOGAMENTO ===
+-- === V8.9.34: PROTECAO CONTRA AFOGAMENTO ===
 -- Nao modifica Terrain nem teleporta o personagem. O servidor ainda pode corrigir fisica.
 local waterParams = RaycastParams.new()
 waterParams.FilterType = Enum.RaycastFilterType.Include
@@ -1419,13 +1247,10 @@ task.spawn(function()
     end
 end)
 
-_G.TGFeralV8935 = {
+_G.TGFeralV8934 = {
     stop = stop,
     config = CONFIG,
     isActive = function() return active end,
-    getStaminaStatus = staminaEngine.getStatus,
-    scanStamina = staminaEngine.scan,
-    setInfiniteStamina = staminaEngine.setEnabled,
     getRuntimeStatus = function()
         return {
             active = active, recovering = runtimeStatus.recovering,
@@ -1488,7 +1313,7 @@ _G.TGFeralV8935 = {
     end
 }
 
--- === PAINEL TIGER / AMBER PREMIUM V8.9.35 ===
+-- === PAINEL TIGER / AMBER PREMIUM V8.9.34 ===
 -- Interface Roblox real (nao a imagem estatica). Logo usa emoji de tigre,
 -- evitando rbxassetid inventado; pode-se informar um ID proprio opcional abaixo.
 do
@@ -1613,7 +1438,7 @@ do
             },emblem)
         end
         textLabel(header,"THE GOAT",19,C.white,offset(75,15),offset(201,25),true)
-        textLabel(header,"FERAL  |  V8.9.35 NEON",10,C.lime,offset(76,41),offset(225,18),true)
+        textLabel(header,"FERAL  |  V8.9.34 NEON",10,C.lime,offset(76,41),offset(225,18),true)
         local mini=uiNew("TextButton", {
             Name="Minimize", Position=UDim2.new(1,-45,0,16),Size=offset(30,30),
             Text="−",Font=Enum.Font.GothamBold,TextSize=20,TextColor3=C.white,
@@ -1830,13 +1655,13 @@ do
                 task.wait(1.2)
             end
         end)
-        print("PAINEL ALIEN NEON THE GOAT V8.9.35: pronto | sem X | minimiza com -")
+        print("PAINEL ALIEN NEON THE GOAT V8.9.34: pronto | sem X | minimiza com -")
     else
         warn("PAINEL THE GOAT: PlayerGui nao encontrado")
     end
 end
 
--- Inicia o scanner somente depois que _G.TGFeralV8935 existe.
+-- Inicia o scanner somente depois que _G.TGFeralV8934 existe.
 -- Dessa forma, nunca tenta acessar getQuests em um objeto nil.
 task.spawn(function()
     while active do
@@ -1849,7 +1674,7 @@ task.spawn(function()
     end
 end)
 
--- === V8.9.35 | ALVO MOVEL ===
+-- === V8.9.34 | ALVO MOVEL ===
 -- Posicao prevista + estimativa da velocidade; nao teleporta o personagem.
 -- O controlador de movimento continua unico e o anti-queda permanece ativo.
 local function makePreyTracker(npc, ourRoot, leadSeconds, maxLead)
@@ -2424,7 +2249,7 @@ pressE = function()
     end)
 end
 
--- === AUTO EAT GRASS V8.9.35 ===
+-- === AUTO EAT GRASS V8.9.34 ===
 -- Funciona com prompts REAIS (EAT/GRAZE), nao inventa RemoteEvents de grama.
 -- A estrutura exata dos patches no FERAL nao esta documentada nesta base:
 -- o scanner tenta tags e nomes fisicos comuns e confirma resultado por Hunger.
@@ -2612,7 +2437,7 @@ local function scanNearbyGrass()
     return best, bestPoint, bestDistance
 end
 
--- === AUTO GRASS EXPLORADOR V8.9.35 ===
+-- === AUTO GRASS EXPLORADOR V8.9.34 ===
 -- Quando nao ha grama conhecida no raio local, avanca por terrenos secos
 -- usando o mesmo navegador seguro. Faz scan apenas AO REDOR do personagem,
 -- nao tenta varrer todo o workspace em um unico frame.
@@ -2901,7 +2726,7 @@ local function autoGrazeOnce()
     return false
 end
 
-_G.TGFeralV8935.getFeedDebug = function()
+_G.TGFeralV8934.getFeedDebug = function()
     return {lastAction=feedDebug.lastAction, lastMethod=feedDebug.lastMethod,
         lastAt=feedDebug.lastAt, lastError=feedDebug.lastError,
         remoteAttempts=feedDebug.remoteAttempts,
@@ -2909,7 +2734,7 @@ _G.TGFeralV8935.getFeedDebug = function()
         keyboardFallbacks=feedDebug.keyboardFallbacks,
         windowFocused=windowFocused}
 end
-_G.TGFeralV8935.getHerbivoreStatus = function()
+_G.TGFeralV8934.getHerbivoreStatus = function()
     local isHerbivore, species = herbivoreState()
     return {herbivore=isHerbivore, species=species,
         autoGrass=CONFIG.AutoGrass, autoFood=CONFIG.AutoFood,
@@ -2917,7 +2742,7 @@ _G.TGFeralV8935.getHerbivoreStatus = function()
         hunger=getHunger(), activity=activity.AutoGrass,
         prompt=grassPromptState()}
 end
-_G.TGFeralV8935.getGrassDebug = function()
+_G.TGFeralV8934.getGrassDebug = function()
     local status={}
     for k,v in pairs(grassDebug) do status[k]=v end
     status.exploreEnabled=CONFIG.GrassExploreEnabled
@@ -2930,7 +2755,7 @@ _G.TGFeralV8935.getGrassDebug = function()
     status.dietMode=dietSwitchState.mode
     return status
 end
-_G.TGFeralV8935.scanGrass = function()
+_G.TGFeralV8934.scanGrass = function()
     local obj, pos, distance = scanNearbyGrass()
     return {target=obj and obj:GetFullName() or nil,
         position=pos, distance=distance, candidates=grassDebug.found}
@@ -2971,7 +2796,7 @@ local function pressRestKey(method, holdSeconds)
     return ok,err,method
 end
 
--- V8.9.35: bloqueia a automacao ate CONFIRMAR que o lobo levantou.
+-- V8.9.34: bloqueia a automacao ate CONFIRMAR que o lobo levantou.
 -- Se a animacao custom nao expuser estado, exige confirmacao visual manual.
 local restGuard = {
     blocked=false, character=nil, knownRestTracks={}, observedRest=false,
@@ -3116,13 +2941,13 @@ local function restGateReady()
         warn("AUTO QUEST REST: CAÇA/TRAVEL/FOOD/DRINK BLOQUEADOS; " ..
             "saida do descanso ainda nao confirmada | " .. tostring(restGuard.lastSource))
         warn("AUTO QUEST REST: se o lobo JA estiver em pe, use " ..
-            "_G.TGFeralV8935.confirmStanding() apos conferir visualmente")
+            "_G.TGFeralV8934.confirmStanding() apos conferir visualmente")
     end
     return false
 end
 
 -- Diagnostic API methods are registered only after rest helpers exist.
-_G.TGFeralV8935.getRestStatus = function()
+_G.TGFeralV8934.getRestStatus = function()
     local char,hum=actor()
     local resting,source=nil,"sem personagem"
     if char and hum then resting,source=detectResting(char,hum) end
@@ -3132,7 +2957,7 @@ _G.TGFeralV8935.getRestStatus = function()
         inputOK=restGuard.lastInputOK, progress=restGuard.lastProgress,
         failedStarts=restGuard.failedStarts, inputError=restGuard.lastInputError}
 end
-_G.TGFeralV8935.confirmStanding = function()
+_G.TGFeralV8934.confirmStanding = function()
     if not restGuard.blocked then return true end
     local char,hum=actor()
     if not char or not hum then return false end
@@ -3509,7 +3334,7 @@ safeRescueConnection=RunService.Heartbeat:Connect(function()
     end
 end)
 
--- === AUTO DRINK V8.9.35: MARGEM SEGURA, NAO VOXEL DE AGUA ===
+-- === AUTO DRINK V8.9.34: MARGEM SEGURA, NAO VOXEL DE AGUA ===
 -- Escolhe solo seco ao lado da agua e recusa lago abaixo de barranco.
 -- Nao reduz a protecao anti-queda nem altera o Terrain.
 local failedWater = {}
@@ -3586,7 +3411,7 @@ local function findAccessibleBank(waterPos, fromPos)
     return bestBank
 end
 
--- === DESNIVEL V8.9.35: A* SOBRE SOLO TRANSITAVEL ===
+-- === DESNIVEL V8.9.34: A* SOBRE SOLO TRANSITAVEL ===
 -- So cria uma rota se encontrar um caminho continuo por terra ate a margem.
 -- Nao aumenta SafeMaxDrop, nao teleporta, nao pula e nao edita o Terrain.
 local descentWetRay=RaycastParams.new()
@@ -4248,12 +4073,12 @@ local function drinkOnce()
     end
 end
 
--- === AUTO QUEST DE BEBER EM LOCAL ESPECIFICO V8.9.35 ===
+-- === AUTO QUEST DE BEBER EM LOCAL ESPECIFICO V8.9.34 ===
 -- Usa pontos que o usuario testou fazendo a missao chegar a DONE.
 -- Nao confunde uma fonte qualquer com Alder Creek / Beaver Ponds.
 local namedDrinkRetryAt = {}
 
--- V8.9.35: diagnostico nao invasivo da prioridade das missoes.
+-- V8.9.34: diagnostico nao invasivo da prioridade das missoes.
 -- Permite verificar por que a missao Great Falls foi ou nao iniciada.
 local questDecisionStatus = {
     phase = "AGUARDANDO PRIMEIRO CICLO", detail = "", lastAt = os.clock(),
@@ -4271,7 +4096,7 @@ local function reportQuestDecision(phase, detail)
         questDecisionStatus.printedAt = now
     end
 end
-_G.TGFeralV8935.getQuestDecisionStatus = function()
+_G.TGFeralV8934.getQuestDecisionStatus = function()
     return {
         phase = questDecisionStatus.phase,
         detail = questDecisionStatus.detail,
@@ -4447,7 +4272,7 @@ local function doNamedDrinkQuest(quest)
     return false
 end
 
--- === AUTO QUEST V8.9.35: LOCAIS, REST E TERRITORIO ===
+-- === AUTO QUEST V8.9.34: LOCAIS, REST E TERRITORIO ===
 local visitRetryAt, restRetryAt, territoryRetryAt={},{},{}
 
 local function namedVisitWaypoint(q)
@@ -4583,7 +4408,7 @@ local function visitNamedQuest(q)
     end
 end
 
--- V8.9.35: o log "R enviado" nunca foi prova de que o FERAL recebeu a tecla.
+-- V8.9.34: o log "R enviado" nunca foi prova de que o FERAL recebeu a tecla.
 -- Inicia por VIM, confirma o progresso real da quest e so entao trava as
 -- automacoes ate confirmar a saida do descanso. Sem progresso: cooldown.
 local function doRestQuest(q)
@@ -5035,18 +4860,17 @@ local function autoTravelQuest(requestedQuest)
     end
 end
 
-print("=== THE GOAT FERAL V8.9.35 AUTO QUEST | SESSAO " .. sessionID .. " ===")
+print("=== THE GOAT FERAL V8.9.34 AUTO QUEST | SESSAO " .. sessionID .. " ===")
 print("Fome:", tostring(getHunger()))
 print("Ativa <=", CONFIG.HungerStart, "| Para >=", CONFIG.HungerStop)
 print("Raio de caca:", CONFIG.HuntRadius, "| Raio de carcaça:", CONFIG.CarcassRadius)
 print("Velocidade:", CONFIG.Speed, "| FaceOffsetDeg:", CONFIG.FaceOffsetDeg)
 print("Ataque manual | sem cliques automaticos")
 print("Thirst/Hydration:", tostring(getThirst()))
-print("STAMINA INFINITA:",CONFIG.InfiniteStamina and "ON (experimental)" or "OFF", "| diagnostico: _G.TGFeralV8935.getStaminaStatus()")
 print("Auto Drink: start", CONFIG.DrinkStart, "stop", CONFIG.DrinkStop, "raio de busca Terrain", CONFIG.WaterSearchRadius, "scan local", CONFIG.WaterLocalRadius, "speed", CONFIG.WaterMoveSpeed)
 print("AUTO QUEST: monitorando QUICK e DAILY | quest comida: Hunger <= " .. CONFIG.QuestEatStart)
 print("PAINEL: Auto Drink", CONFIG.AutoDrink, "Auto Food", CONFIG.AutoFood, "Auto Grass", CONFIG.AutoGrass, "Auto Quest", CONFIG.AutoQuest)
-print("FEED V8.9.35: WolfActions / Feed / eat-drink (teste com janela minimizada pendente)")
+print("FEED V8.9.34: WolfActions / Feed / eat-drink (teste com janela minimizada pendente)")
 print("AUTO QUEST DISTANCIA:", CONFIG.QuestTravelEnabled and "ON" or "OFF",
     "| speed:", CONFIG.QuestTravelSpeed, "| trecho:", CONFIG.QuestTravelLegStuds)
 print("AUTO QUEST AGUA: Alder Creek confirmado", tostring(CONFIG.AlderCreekDrinkPos))
@@ -5066,9 +4890,9 @@ print("TRAVESSIA AGUA:",CONFIG.WaterAllowCrossing and "LIBERADA" or "COM DESVIOS
     "| nado",CONFIG.WaterSwimSpeed,"studs/s | resgate apos",
     CONFIG.WaterRescueAfterStuckSeconds,"s SEM PROGRESSO")
 print("GET AMBER: caca normal, 1 NPC por vez | alcance", CONFIG.AttackDistance, "studs | intervalo", CONFIG.AttackInterval, "s")
-print("AUTO MOVE SEGURO V8.9.35: corrida ate", CONFIG.SafeMaxSpeed, "| desvio ate", CONFIG.NavCornerSpeed,
+print("AUTO MOVE SEGURO V8.9.34: corrida ate", CONFIG.SafeMaxSpeed, "| desvio ate", CONFIG.NavCornerSpeed,
     "| anti-queda e anti-trava | travessia da agua mantida")
-print("LOG NAV: print(_G.TGFeralV8935.getNavLog())")
+print("LOG NAV: print(_G.TGFeralV8934.getNavLog())")
 print("AUTO QUEST CACA: Catch a mouse e Hunt a herbivore incluidos com selecao sem bloqueio")
 print("MAPA: aliases MapSpots carregados; coordenadas capturadas sempre tem prioridade")
 print("AUTO QUEST LOCAL: Golden Plains", tostring(CONFIG.GoldenPlainsVisitPos))
@@ -5078,17 +4902,17 @@ print("AUTO QUEST LOCAL: Explore Granite Basin [DONE confirmado]", tostring(CONF
 print("AUTO DRINK MARGEM: buscando margem seca acessivel | desnivel max proximo:",CONFIG.WaterBankMaxNearbyDrop)
 print("AUTO DRINK DESCIDA: busca autonoma",CONFIG.WaterDescentEnabled and "ON" or "OFF",
     "| raio",CONFIG.WaterDescentSearchRadius,"| sem saltar e sem alterar protecao de queda")
-print("STATUS DESCIDA: print(_G.TGFeralV8935.getDescentStatus().last)")
+print("STATUS DESCIDA: print(_G.TGFeralV8934.getDescentStatus().last)")
 print("AUTO QUEST AGUA: Golden Waterhole", tostring(CONFIG.GoldenWaterholeDrinkPos))
 print("SEGURANCA AGUA:",CONFIG.WaterSafetyEnabled)
 print("AUTO QUEST LOCAL: Elk Crossing confirmado", tostring(CONFIG.ElkCrossingVisitPos))
 print("AUTO QUEST AGUA: Drink at Elk Crossing (aguarda DONE)", tostring(CONFIG.ElkCrossingDrinkPos))
 print("AUTO QUEST: Rest for 90s (R) e Claim a territory habilitados")
-print("AUTO QUEST REST V8.9.35: tenta R via VIM, depois executor; exige progresso real na GUI")
+print("AUTO QUEST REST V8.9.34: tenta R via VIM, depois executor; exige progresso real na GUI")
 print("AUTO QUEST REST: se R nao for reconhecido, faz pausa e segue outras quests; nao entra em bloqueio falso")
-print("REST STATUS: print(_G.TGFeralV8935.getRestStatus())")
+print("REST STATUS: print(_G.TGFeralV8934.getRestStatus())")
 print("AUTO RESPAWN: somente botao RESPAWN gratuito na morte confirmada")
-print("RESPAWN STATUS: print(_G.TGFeralV8935.getRespawnStatus())")
+print("RESPAWN STATUS: print(_G.TGFeralV8934.getRespawnStatus())")
 print("STATUS: ATIVO | Painel Drink / Food / Grass / Quest / Get Amber | Speed", CONFIG.Speed)
 print("GET AMBER: " .. (CONFIG.GetAmber and "ON" or "OFF") ..
     " | independente de Auto Quest; exige HP alto, Food e Drink ON")
@@ -5103,7 +4927,7 @@ local feeding = false
 local drinking = false
 local grazing = false
 
--- === AUTO RESPAWN V8.9.35 (somente botao gratuito RESPAWN) ===
+-- === AUTO RESPAWN V8.9.34 (somente botao gratuito RESPAWN) ===
 -- Preserva as rotinas e o painel. Nao usa RESPAWN como comando de servidor inventado.
 -- Evita REVIVE, CHANGE ANIMAL e qualquer botao pago.
 -- Tenta sinais de UI se executor os expuser; clique virtual somente em janela focada.
@@ -5237,7 +5061,7 @@ local function requestRespawn(button,attempt)
     end
 end
 
-_G.TGFeralV8935.getRespawnStatus=function()
+_G.TGFeralV8934.getRespawnStatus=function()
     local _,hum=actor()
     return {
         enabled=CONFIG.AutoRespawn, dead=respawnState.dead,
@@ -5633,37 +5457,37 @@ task.spawn(function()
     end
     runtimeStatus.recovering = false
     stop()
-    print("THE GOAT FERAL V8.9.35 SESSAO " .. sessionID .. " DESLIGADA")
+    print("THE GOAT FERAL V8.9.34 SESSAO " .. sessionID .. " DESLIGADA")
 end)
 
 -- Para desligar no console:
--- if _G.TGFeralV8935 then _G.TGFeralV8935.stop() end  -- encerrar tudo (nao ha X)
--- Status: print(_G.TGFeralV8935 and _G.TGFeralV8935.isActive())
--- Get Amber livre: _G.TGFeralV8935.config.GetAmber = true (prefira o botao do painel)
+-- if _G.TGFeralV8934 then _G.TGFeralV8934.stop() end  -- encerrar tudo (nao ha X)
+-- Status: print(_G.TGFeralV8934 and _G.TGFeralV8934.isActive())
+-- Get Amber livre: _G.TGFeralV8934.config.GetAmber = true (prefira o botao do painel)
 -- Grass e Food: AutoDietSwitch escolhe ON pelo animal reconhecido.
 -- Quest e Aura: sempre iniciam OFF, o usuario decide pelo painel.
--- Debug: print(_G.TGFeralV8935.getGrassDebug().status)
--- Especie: print(_G.TGFeralV8935.getHerbivoreStatus().species)
--- Scan manual: print(_G.TGFeralV8935.scanGrass().target)
+-- Debug: print(_G.TGFeralV8934.getGrassDebug().status)
+-- Especie: print(_G.TGFeralV8934.getHerbivoreStatus().species)
+-- Scan manual: print(_G.TGFeralV8934.scanGrass().target)
 -- Se nenhuma grama for encontrada, envie logs/nomes dos patches para refinar scanner.
--- Descida: print(_G.TGFeralV8935.getDescentStatus().last)
--- Descida OFF: _G.TGFeralV8935.config.WaterDescentEnabled=false
+-- Descida: print(_G.TGFeralV8934.getDescentStatus().last)
+-- Descida OFF: _G.TGFeralV8934.config.WaterDescentEnabled=false
 -- O Get Amber nao exige AutoQuest ON, nem quests DONE, nem leitura de QUICK/DAILY.
 -- Com ambos ON, Get Amber tem prioridade; desligue Get Amber para retomar as quests.
--- Abates: print(_G.TGFeralV8935.getAmberKills())
+-- Abates: print(_G.TGFeralV8934.getAmberKills())
 -- Get Amber usa apenas AmberSpecies (Deer, Otter, Fox).
--- Missoes: for _, q in ipairs(_G.TGFeralV8935.getQuests()) do print(q.title, q.progress, q.category) end
--- Scanner: print(_G.TGFeralV8935.getQuestScannerStatus().source)
--- Prioridade: print(_G.TGFeralV8935.getQuestDecisionStatus().phase, _G.TGFeralV8935.getQuestDecisionStatus().detail)
+-- Missoes: for _, q in ipairs(_G.TGFeralV8934.getQuests()) do print(q.title, q.progress, q.category) end
+-- Scanner: print(_G.TGFeralV8934.getQuestScannerStatus().source)
+-- Prioridade: print(_G.TGFeralV8934.getQuestDecisionStatus().phase, _G.TGFeralV8934.getQuestDecisionStatus().detail)
 
--- Descanso: print(_G.TGFeralV8935.getRestStatus())
+-- Descanso: print(_G.TGFeralV8934.getRestStatus())
 -- Se o jogo nao expuser animacao/estado, confirme VISUALMENTE o lobo em pe
--- e somente depois: print(_G.TGFeralV8935.confirmStanding())
+-- e somente depois: print(_G.TGFeralV8934.confirmStanding())
 
 
 end
 
-print("THE GOAT: iniciando V8.9.35B | Aura V2 integrada | Auto Respawn")
+print("THE GOAT: iniciando V8.9.34 | Aura V2 integrada | Auto Respawn")
 local ok, falha = xpcall(iniciarTheGoat, function(err)
     if debug and type(debug.traceback) == "function" then
         return debug.traceback(tostring(err), 2)
@@ -5674,16 +5498,6 @@ if not ok then
     warn("THE GOAT: falha na inicializacao | " .. tostring(falha))
 end
 
--- AURA: _G.TGFeralV8935.getAuraStatus().target
--- AURA ON/OFF: _G.TGFeralV8935.setAuraEnabled(true) / (false)
--- ALCANCE: _G.TGFeralV8935.setAuraRange(60)
-
--- ESTAMINA (V8.9.35): print(_G.TGFeralV8935.getStaminaStatus().last)
--- ESTAMINA ON/OFF: _G.TGFeralV8935.setInfiniteStamina(true/false)
--- ATENCAO: alteracoes locais podem nao impedir gasto de stamina validado no servidor.
-
--- SE O EXECUTOR INFORMAR "attempt to call a nil value" NA LINHA 1:
--- Verifique a compilacao do loader antes de executar:
--- local code=game:HttpGet("URL_RAW_DO_SCRIPT")
--- local fn,err=loadstring(code)
--- if not fn then warn("ERRO DE COMPILACAO:",err) else fn() end
+-- AURA: _G.TGFeralV8934.getAuraStatus().target
+-- AURA ON/OFF: _G.TGFeralV8934.setAuraEnabled(true) / (false)
+-- ALCANCE: _G.TGFeralV8934.setAuraRange(60)
