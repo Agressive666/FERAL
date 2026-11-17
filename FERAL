@@ -1,4 +1,6 @@
--- THE GOAT FERAL V8.9.34 + SPEED CONTROL | V EXCLUSIVO VELOCIDADE; AURA SO PAINEL
+-- THE GOAT FERAL V8.9.34 + SPEED CONTROL + GET AMBER INDEPENDENTE
+-- Get Amber tem suporte interno a fome/sede sem exigir Auto Food/Drink ON no painel.
+-- Tecla V continua exclusiva da velocidade; Aura continua exclusiva do painel.
 -- CORRECAO: Auto Grass para Hippo e demais herbivoros; Great Falls, Aura V2 e demais rotinas preservadas.
 -- Preserva Auto Drink, descida automatica, Auto Food, Auto Quest e painel da V8.9.31.
 -- BASE: V8.9.23, com as funcoes e melhorias preservadas da V8.9.21.
@@ -236,6 +238,15 @@ local CONFIG = {
     WaterDescentLookAhead = 5, -- conserva o sensor anti-queda ativo
     WaterDescentMaxReplans = 2 -- tenta nova rota apos obstaculo/travamento
 }
+
+-- Suporte interno do Get Amber: nao muda o estado visual dos botoes AutoFood/AutoDrink.
+-- Nao adiciona novas rotinas concorrentes; reutiliza os loops ja existentes.
+CONFIG._foodActive = function()
+    return CONFIG.AutoFood or CONFIG.GetAmber
+end
+CONFIG._drinkActive = function()
+    return CONFIG.AutoDrink or CONFIG.GetAmber
+end
 
 local active = true
 local controlsEpoch = 0 -- interrompe operacoes antigas quando qualquer botao muda
@@ -798,9 +809,6 @@ local function amberReady(requireFullHealth)
         local herb = herbivoreState()
         if herb == true then return false, "PAUSADO: AUTO GRASS" end
     end
-    if not CONFIG.AutoFood or not CONFIG.AutoDrink then
-        return false, "REQUER FOOD + DRINK"
-    end
     if os.clock() < amberPauseUntil then return false, "PAUSA DE SEGURANCA" end
     local _, hum = actor()
     if not hum or hum.MaxHealth <= 0 or hum.Health <= 0 then
@@ -1311,6 +1319,13 @@ _G.TGFeralV8934 = {
     end,
     getControls = function()
         return {AutoDrink = CONFIG.AutoDrink, AutoFood = CONFIG.AutoFood, AutoGrass = CONFIG.AutoGrass, AutoQuest = CONFIG.AutoQuest, GetAmber = CONFIG.GetAmber, AutoRespawn = CONFIG.AutoRespawn, AutoAttack = CONFIG.AutoAttack}
+    end,
+    getAmberSupportStatus = function()
+        local herbivore = herbivoreState()
+        return {getAmber=CONFIG.GetAmber, autoFoodButton=CONFIG.AutoFood,
+            autoDrinkButton=CONFIG.AutoDrink, internalFood=CONFIG._foodActive(),
+            internalDrink=CONFIG._drinkActive(), herbivore=herbivore,
+            hunger=getHunger(), thirst=getThirst()}
     end,
     getActivity = function()
         return {AutoDrink = activity.AutoDrink, AutoFood = activity.AutoFood, AutoGrass = activity.AutoGrass, AutoQuest = activity.AutoQuest, GetAmber = activity.GetAmber, AutoRespawn = activity.AutoRespawn, AutoAttack = activity.AutoAttack}
@@ -3058,7 +3073,7 @@ local lastMissingMouseWarning, lastUnavailableHuntWarning = -math.huge, -math.hu
 
 local function walkToCarcass(npc)
     local char, hum, root = actor()
-    if not char or not CONFIG.AutoFood then return false end
+    if not char or not CONFIG._foodActive() then return false end
     local actionEpoch = controlsEpoch
     local getDistance = startMovement(hum, root, function()
         return foodPosition(npc)
@@ -3072,11 +3087,11 @@ local function walkToCarcass(npc)
     local previousBest = horizontal(root.Position, foodPosition(npc)).Magnitude
     local lastLog = 0
     local arrived = false
-    while active and CONFIG.AutoFood and controlsEpoch == actionEpoch
+    while active and CONFIG._foodActive() and controlsEpoch == actionEpoch
         and npc.Parent and player.Character == char and os.clock() - started < CONFIG.TravelTimeout do
         task.wait(0.25)
         local hunger = getHunger()
-        if CONFIG.AutoDrink and getThirst() and getThirst() <= CONFIG.DrinkStart then
+        if CONFIG._drinkActive() and getThirst() and getThirst() <= CONFIG.DrinkStart then
             print("Auto Eat: pausando para beber")
             break
         end
@@ -3112,20 +3127,20 @@ local function walkToCarcass(npc)
 end
 
 local function eatCarcass(npc)
-    if not CONFIG.AutoFood then return false end
+    if not CONFIG._foodActive() then return false end
     local actionEpoch = controlsEpoch
     local started = os.clock()
     local lastGain = started
     local previous = getHunger() or 0
     local lastPress = 0
     local missingPromptSince = nil
-    while active and CONFIG.AutoFood and controlsEpoch == actionEpoch
+    while active and CONFIG._foodActive() and controlsEpoch == actionEpoch
         and npc.Parent and os.clock() - started < CONFIG.EatTimeout do
         local h = getHunger()
         local food = npc:GetAttribute("FoodLeft")
         if not h then return false end
         if h >= CONFIG.HungerStop then return true end
-        if CONFIG.AutoDrink and getThirst() and getThirst() <= CONFIG.DrinkStart then
+        if CONFIG._drinkActive() and getThirst() and getThirst() <= CONFIG.DrinkStart then
             print("Auto Eat: pausando para beber")
             return false
         end
@@ -3162,7 +3177,7 @@ end
 
 local function chaseAndAttack(npc, questTitle, amberMode)
     local char, hum, root = actor()
-    if not char or not CONFIG.AutoFood or (questTitle and not CONFIG.AutoQuest) then return false end
+    if not char or not CONFIG._foodActive() or (questTitle and not CONFIG.AutoQuest) then return false end
     if not restGateReady() then
         warn("AUTO HUNT: ataque cancelado; lobo ainda nao levantou do descanso")
         return false
@@ -3202,13 +3217,13 @@ local function chaseAndAttack(npc, questTitle, amberMode)
     print(amberMode and "GET AMBER HUNT:" or "AUTO HUNT:", npc.Name,
         "| Species:", tostring(npc:GetAttribute("Species")))
     print("Vida NPC visivel:", tostring(previousNPCHealth))
-    while active and CONFIG.AutoFood and controlsEpoch == actionEpoch
+    while active and CONFIG._foodActive() and controlsEpoch == actionEpoch
         and (not questTitle or CONFIG.AutoQuest) and npc.Parent and player.Character == char
         and os.clock() - started < (amberMode and CONFIG.AmberHuntTimeout or CONFIG.ChaseTimeout) do
 
         task.wait(0.13)
         -- Os botoes ou o respawn podem cancelar a rotina durante a espera.
-        if not active or not CONFIG.AutoFood or controlsEpoch ~= actionEpoch
+        if not active or not CONFIG._foodActive() or controlsEpoch ~= actionEpoch
             or (questTitle and not CONFIG.AutoQuest) or (amberMode and not CONFIG.GetAmber)
             or not npc.Parent or player.Character ~= char or not root.Parent
             or not hum.Parent or hum.Health <= 0 then break end
@@ -3246,7 +3261,7 @@ local function chaseAndAttack(npc, questTitle, amberMode)
         end
         local h = getHunger()
         if not amberMode and not questTitle and h and h >= CONFIG.HungerStop then break end
-        if CONFIG.AutoDrink and getThirst() and getThirst() <= CONFIG.DrinkStart then
+        if CONFIG._drinkActive() and getThirst() and getThirst() <= CONFIG.DrinkStart then
             print("Auto Hunt: pausando para beber")
             break
         end
@@ -3295,7 +3310,7 @@ local function chaseAndAttack(npc, questTitle, amberMode)
         end
     end
     stopMovement()
-    if controlsEpoch ~= actionEpoch or not CONFIG.AutoFood then return false end
+    if controlsEpoch ~= actionEpoch or not CONFIG._foodActive() then return false end
     if questCompletedDuringChase then return true end
     if npc.Parent and npc:GetAttribute("FeralDead") == true then
         print("ANIMAL MORTO CONFIRMADO:", npc.Name)
@@ -3584,7 +3599,7 @@ local function planWaterDescent(waterPos, fromPos, scanEpoch)
     local doneNode,doneBank=nil,nil
     local stopReason="SEM PASSAGEM SEGURA"
     while #heap>0 do
-        if not active or not CONFIG.AutoDrink or scanEpoch~=controlsEpoch then
+        if not active or not CONFIG._drinkActive() or scanEpoch~=controlsEpoch then
             descentStats.last="CANCELADO"
             return nil
         end
@@ -3715,7 +3730,7 @@ local function findLocalWater(pos)
 end
 
 local function findWater()
-    if not CONFIG.AutoDrink then return nil end
+    if not CONFIG._drinkActive() then return nil end
     local scanEpoch=controlsEpoch
     local _,_,root=actor()
     if not root then return nil end
@@ -3747,18 +3762,18 @@ local function findWater()
     local checks=0
     print("AUTO DRINK MARGEM: procurando margem seca, acessivel e proxima da agua...")
     for _,ring in ipairs(rings) do
-        if not active or not CONFIG.AutoDrink or scanEpoch~=controlsEpoch then return nil end
+        if not active or not CONFIG._drinkActive() or scanEpoch~=controlsEpoch then return nil end
         if ring>CONFIG.WaterSearchRadius+45 then break end
         local spacing=(ring<=580) and 58 or ((ring<=1240) and 90 or 130)
         local count=math.max(10,math.ceil((2*math.pi*ring)/spacing))
         local bestBank,bestWater,bestDist=nil,nil,math.huge
         for i=0,count-1 do
-            if not active or not CONFIG.AutoDrink or scanEpoch~=controlsEpoch then return nil end
+            if not active or not CONFIG._drinkActive() or scanEpoch~=controlsEpoch then return nil end
             if os.clock()-started>CONFIG.WaterScanTimeBudget then
                 warn("AUTO DRINK MARGEM: tempo limite do scan; ultimo anel:",ring)
                 -- Candidatos baixos coletados no scan ainda podem ter uma descida.
                 for _,water in ipairs(descentCandidates) do
-                    if active and CONFIG.AutoDrink and scanEpoch==controlsEpoch then
+                    if active and CONFIG._drinkActive() and scanEpoch==controlsEpoch then
                         local route,shore=planWaterDescent(water,origin,scanEpoch)
                         if route and shore then
                             return shore,"Descida autonoma Terrain",
@@ -3804,7 +3819,7 @@ local function findWater()
         end
     end
     for _,water in ipairs(descentCandidates) do
-        if not active or not CONFIG.AutoDrink or scanEpoch~=controlsEpoch then return nil end
+        if not active or not CONFIG._drinkActive() or scanEpoch~=controlsEpoch then return nil end
         local route,shore=planWaterDescent(water,origin,scanEpoch)
         if route and shore then
             return shore,"Descida autonoma Terrain",
@@ -3818,7 +3833,7 @@ end
 -- Evita repetir o mesmo scan enquanto o animal continua no mesmo barranco.
 local failedScanPosition, failedScanCharacter, failedScanUntil
 local function drinkOnce()
-    if not CONFIG.AutoDrink then return end
+    if not CONFIG._drinkActive() then return end
     local actionEpoch = controlsEpoch
     if os.clock() < nextDrinkTry then return end
     local scanCharacter, _, scanRoot = actor()
@@ -3836,7 +3851,7 @@ local function drinkOnce()
     print("AUTO DRINK: iniciando busca | Sede:", tostring(getThirst()))
 
     local target, source, initialDistance, sourceWater, descentRoute = findWater()
-    if not CONFIG.AutoDrink or controlsEpoch ~= actionEpoch then return end
+    if not CONFIG._drinkActive() or controlsEpoch ~= actionEpoch then return end
     if not target then
         failedScanPosition, failedScanCharacter = scanPosition, scanCharacter
         failedScanUntil = os.clock() + 45
@@ -3898,7 +3913,7 @@ local function drinkOnce()
         descentRoute and math.max(95,routeLength/math.max(6,CONFIG.WaterDescentSpeed)*3+45)
             or math.max(35,initialDistance/8+25))
 
-    while active and CONFIG.AutoDrink and controlsEpoch == actionEpoch
+    while active and CONFIG._drinkActive() and controlsEpoch == actionEpoch
         and player.Character == char and os.clock() - started < timeout do
         task.wait(0.25)
         if not root.Parent then break end
@@ -4004,7 +4019,7 @@ local function drinkOnce()
     end
     stopMovement()
 
-    if not active or not CONFIG.AutoDrink or controlsEpoch ~= actionEpoch then return end
+    if not active or not CONFIG._drinkActive() or controlsEpoch ~= actionEpoch then return end
     if not arrived then
         warn("AUTO DRINK MARGEM: nao alcancou solo seguro; fonte bloqueada temporariamente")
         blockWater(sourceWater or target)
@@ -4026,7 +4041,7 @@ local function drinkOnce()
     local attempts = 0
     local hydrationConfirmed = false
     local maxDrinkTime = os.clock() + 55
-    while active and CONFIG.AutoDrink and controlsEpoch == actionEpoch
+    while active and CONFIG._drinkActive() and controlsEpoch == actionEpoch
         and root.Parent and player.Character == char and os.clock() < maxDrinkTime do
         local now = getThirst()
         if not now then break end
@@ -4060,7 +4075,7 @@ local function drinkOnce()
         if os.clock() - lastGain > 13 and attempts >= 3 then break end
         task.wait(0.8)
     end
-    if not CONFIG.AutoDrink or controlsEpoch ~= actionEpoch then return end
+    if not CONFIG._drinkActive() or controlsEpoch ~= actionEpoch then return end
     if hydrationConfirmed then
         print("Auto Drink: a sede subiu, mas nao chegou a", CONFIG.DrinkStop, "%")
         nextDrinkTry = os.clock() + 2
@@ -5213,7 +5228,7 @@ task.spawn(function()
                     thirstTrigger = CONFIG.AmberMinThirst
                 end
 
-                if not CONFIG.AutoFood or grassMode then feeding = false end
+                if not CONFIG._foodActive() or grassMode then feeding = false end
                 if not grassMode then grazing = false end
                 if CONFIG.AutoGrass and herbivore ~= true then
                     setActivity("AutoGrass", "ESPECIE NAO HERBIVORA/NAO IDENTIFICADA")
@@ -5225,9 +5240,9 @@ task.spawn(function()
                     grazing = false
                     setActivity("AutoGrass", "FOME RECUPERADA")
                 end
-                if not CONFIG.AutoDrink then drinking = false end
+                if not CONFIG._drinkActive() then drinking = false end
 
-                if CONFIG.AutoFood and not grassMode and not feeding and h <= hungerTrigger then
+                if CONFIG._foodActive() and not grassMode and not feeding and h <= hungerTrigger then
                     feeding = true
                     print("FOME BAIXA:", h, "- iniciando busca de comida")
                 elseif feeding and h >= CONFIG.HungerStop then
@@ -5235,7 +5250,7 @@ task.spawn(function()
                     print("FOME RECUPERADA:", h, "- em espera")
                 end
 
-                if CONFIG.AutoDrink and t ~= nil then
+                if CONFIG._drinkActive() and t ~= nil then
                     if not drinking and t <= thirstTrigger then drinking = true end
                     if drinking and t >= CONFIG.DrinkStop then drinking = false end
                 end
@@ -5257,10 +5272,16 @@ task.spawn(function()
                     reportQuestDecision("SEM QUEST AGUA NOMEADA",
                         "autoQuest=" .. tostring(CONFIG.AutoQuest) ..
                         " | autoDrink=" .. tostring(CONFIG.AutoDrink) ..
+                        " | suporteAmberDrink=" .. tostring(CONFIG.GetAmber and CONFIG._drinkActive()) ..
                         " | getAmber=" .. tostring(CONFIG.GetAmber) ..
                         " | sede=" .. tostring(t))
                 end
-                if CONFIG.AutoDrink and drinking and t and t < CONFIG.QuestNamedDrinkSafetyThreshold then
+                if CONFIG.GetAmber and drinking and not CONFIG.AutoDrink then
+                    setActivity("GetAmber", "SUPORTE: BUSCANDO AGUA")
+                elseif CONFIG.GetAmber and feeding and not CONFIG.AutoFood then
+                    setActivity("GetAmber", "SUPORTE: ALIMENTACAO")
+                end
+                if CONFIG._drinkActive() and drinking and t and t < CONFIG.QuestNamedDrinkSafetyThreshold then
                     if os.clock() >= nextDrinkTry then
                         setActivity("AutoDrink","BUSCANDO AGUA")
                         drinkOnce()
@@ -5274,7 +5295,7 @@ task.spawn(function()
                     setActivity("AutoDrink","EM ESPERA")
                     setActivity("AutoQuest","EM ESPERA")
                     if active then task.wait(0.6) end
-                elseif CONFIG.AutoDrink and drinking then
+                elseif CONFIG._drinkActive() and drinking then
                     if os.clock() >= nextDrinkTry then
                         setActivity("AutoDrink","BUSCANDO AGUA")
                         drinkOnce()
@@ -5287,18 +5308,18 @@ task.spawn(function()
                     local success = autoGrazeOnce()
                     setActivity("AutoGrass",CONFIG.AutoGrass and "EM ESPERA" or "DESATIVADO")
                     if active then task.wait(success and 0.5 or 1.3) end
-                elseif CONFIG.AutoFood and feeding then
+                elseif CONFIG._foodActive() and feeding then
                     local corpse, distance, count = closestNPC(true, CONFIG.CarcassRadius)
                     if corpse then
                         print("CARCACA:", corpse.Name, "dist:", math.floor(distance))
                         setActivity("AutoFood","INDO COMER")
                         if walkToCarcass(corpse) then
                             setActivity("AutoFood","SE ALIMENTANDO")
-                            if not eatCarcass(corpse) and CONFIG.AutoFood then
+                            if not eatCarcass(corpse) and CONFIG._foodActive() then
                                 failedUntil[corpse] = os.clock() + 40
                             end
                         else
-                            if CONFIG.AutoFood then failedUntil[corpse] = os.clock() + 40 end
+                            if CONFIG._foodActive() then failedUntil[corpse] = os.clock() + 40 end
                         end
                         setActivity("AutoFood","EM ESPERA")
                     else
@@ -5470,7 +5491,9 @@ end)
 -- Se nenhuma grama for encontrada, envie logs/nomes dos patches para refinar scanner.
 -- Descida: print(_G.TGFeralV8934.getDescentStatus().last)
 -- Descida OFF: _G.TGFeralV8934.config.WaterDescentEnabled=false
--- O Get Amber nao exige AutoQuest ON, nem quests DONE, nem leitura de QUICK/DAILY.
+-- O Get Amber nao exige AutoQuest, AutoFood ou AutoDrink ON no painel.
+-- Ao ligar Get Amber, alimento e agua funcionam internamente; os botoes permanecem inalterados.
+-- Debug: print(_G.TGFeralV8934.getAmberSupportStatus().internalFood)
 -- Com ambos ON, Get Amber tem prioridade; desligue Get Amber para retomar as quests.
 -- Abates: print(_G.TGFeralV8934.getAmberKills())
 -- Get Amber usa apenas AmberSpecies (Deer, Otter, Fox).
@@ -5485,7 +5508,7 @@ end)
 
 end
 
-print("THE GOAT: iniciando V8.9.34 | Aura V2 integrada | Auto Respawn")
+print("THE GOAT: iniciando V8.9.34 | GET AMBER INDEPENDENTE | velocidade V | Aura painel")
 local ok, falha = xpcall(iniciarTheGoat, function(err)
     if debug and type(debug.traceback) == "function" then
         return debug.traceback(tostring(err), 2)
