@@ -1,5 +1,5 @@
--- THE GOAT FERAL V8.9.33 - AUTO QUEST | CORRECAO CATEGORIA GREAT FALLS
--- CORRECAO: nomes de missoes classificados por palavras completas, evitando Great -> eat.
+-- THE GOAT FERAL V8.9.33 - AUTO QUEST | AURA INTEGRADA | FIX AUTO GRASS HIPPO
+-- CORRECAO: Auto Grass para Hippo e demais herbivoros; Great Falls, Aura V2 e demais rotinas preservadas.
 -- Preserva Auto Drink, descida automatica, Auto Food, Auto Quest e painel da V8.9.31.
 -- BASE: V8.9.23, com as funcoes e melhorias preservadas da V8.9.21.
 -- REVISAO: descida autonoma por terreno ate margem de agua, sem saltos.
@@ -62,8 +62,8 @@ local CONFIG = {
     AuraMaxRange = 100,
     AuraAttackInterval = 0.8,
     AuraBiteHitDelay = 0.12,
-    -- AUTO GRASS: habilitado manualmente no painel para herbivoros.
-    AutoGrass = false,
+    -- AUTO GRASS: inicia ON, mas a rotina de pasto so atua para herbivoros identificados.
+    AutoGrass = true,
     GrassStart = 80,            -- comeca a pastar
     GrassStop = 95,             -- para quando alimentado
     FeedRemoteFirst = true,     -- V8.9.33: WolfActions Feed (funciona sem simular E)
@@ -260,7 +260,7 @@ local runtimeStatus = {
 local activity = {
     AutoDrink = "EM ESPERA",
     AutoFood = "EM ESPERA",
-    AutoGrass = "DESATIVADO",
+    AutoGrass = "EM ESPERA",
     AutoQuest = "EM ESPERA",
     GetAmber = "DESATIVADO",
     AutoRespawn = "AGUARDANDO MORTE",
@@ -295,39 +295,94 @@ local function getHunger()
     return getPercent("Hunger")
 end
 
--- Detecta a dieta quando o jogo expoe atributos; se nao expoe,
--- so tenta pastar quando o usuario habilitar Auto Grass e houver prompt EAT/GRAZE.
+-- AUTO GRASS: identificar a ESPECIE antes da dieta. Ex.: Hippo/Hippopotamus
+-- pode nao ter Diet disponivel, ou um valor generico nao representar a dieta real.
+-- A leitura cobre atributos do Character/Player, StringValues e submodelo animal.
+-- Nao varre o workspace nem altera o personagem.
+local herbivoreNames = {
+    "hippopotamus", "hippo", "elephant", "rhino", "rhinoceros", "deer", "elk",
+    "bison", "buffalo", "porcupine", "goat", "moose", "antelope", "gazelle",
+    "giraffe", "zebra", "horse", "rabbit", "hare", "reindeer", "caribou",
+    "wildebeest", "capybara", "tapir", "okapi", "camel", "llama", "alpaca",
+    "sheep", "cow", "cattle", "donkey", "yak", "ibex", "manatee"
+}
+local carnivoreNames = {
+    "wolf", "tiger", "otter", "fox", "bear", "cougar", "python", "cobra",
+    "alligator", "crocodile", "eagle", "lion", "leopard", "hyena",
+    "cheetah", "jaguar", "panther", "lynx", "shark"
+}
+local speciesKeys = {"Species", "SpeciesName", "AnimalSpecies", "CurrentSpecies",
+    "Animal", "AnimalName", "AnimalType", "Creature", "CreatureType", "SelectedAnimal"}
+local dietKeys = {"Diet", "AnimalDiet", "FoodType"}
 local function herbivoreState()
     local char = player.Character
     if not char then return nil, "SEM PERSONAGEM" end
-    local values = {}
-    for _, inst in ipairs({char, player}) do
-        for _, key in ipairs({"Diet", "AnimalDiet", "FoodType", "Species", "SpeciesName", "Animal", "AnimalName", "AnimalType"}) do
-            local v = inst:GetAttribute(key)
-            if type(v) == "string" and v ~= "" then
-                if key == "Diet" or key == "AnimalDiet" or key == "FoodType" then
-                    local d = v:lower()
-                    if d:find("herbi", 1, true) then return true, v end
-                    if d:find("carni", 1, true) then return false, v end
+    local species, diets = {}, {}
+    local function add(list, value)
+        if type(value) == "string" and value ~= "" then
+            table.insert(list, value)
+        end
+    end
+    local function collect(container)
+        if not container then return end
+        for _, key in ipairs(speciesKeys) do
+            add(species, container:GetAttribute(key))
+        end
+        for _, key in ipairs(dietKeys) do
+            add(diets, container:GetAttribute(key))
+        end
+        -- Jogos podem usar StringValue em vez de Attribute para nome/dieta.
+        for _, child in ipairs(container:GetChildren()) do
+            if child:IsA("StringValue") then
+                for _, key in ipairs(speciesKeys) do
+                    if child.Name == key then add(species, child.Value); break end
                 end
-                table.insert(values, v)
+                for _, key in ipairs(dietKeys) do
+                    if child.Name == key then add(diets, child.Value); break end
+                end
             end
         end
     end
-    -- Nome do avatar e fallback, nao deve superar o atributo real Species.
-    table.insert(values, char.Name)
-    local herbi = {"deer", "elk", "bison", "rhino", "porcupine", "elephant", "hippo", "hippopotamus", "goat", "moose", "antelope", "gazelle", "giraffe", "zebra", "horse", "rabbit", "hare"}
-    local others = {"wolf", "tiger", "otter", "fox", "bear", "cougar", "python", "cobra", "alligator", "crocodile", "eagle", "lion", "leopard"}
-    for _, value in ipairs(values) do
-        local normalized = tostring(value):lower():gsub("[^%a]", "")
-        for _, name in ipairs(herbi) do
+    collect(char)
+    -- Alguns rigs usam submodelo com o nome real: Hippo_Male, Elephant etc.
+    for _, child in ipairs(char:GetChildren()) do
+        if child:IsA("Model") then
+            add(species, child.Name)
+            for _, key in ipairs(speciesKeys) do
+                add(species, child:GetAttribute(key))
+            end
+        end
+    end
+    collect(player)
+    -- Classificar especie conhecida primeiro; nao confundir nome da conta com animal.
+    -- Normalizacao suporta Hippo_Male, Hippopotamus-Female, nomes com espacos etc.
+    for _, value in ipairs(species) do
+        local normalized = value:lower():gsub("[^%a]", "")
+        for _, name in ipairs(herbivoreNames) do
             if normalized:find(name, 1, true) then return true, value end
         end
-        for _, name in ipairs(others) do
+        for _, name in ipairs(carnivoreNames) do
             if normalized:find(name, 1, true) then return false, value end
         end
     end
-    return nil, "DIETA NAO IDENTIFICADA"
+    for _, value in ipairs(diets) do
+        local d = value:lower()
+        if d:find("herbi", 1, true) or d:find("graze", 1, true)
+            or d:find("grass", 1, true) or d:find("plant", 1, true)
+            or d:find("veget", 1, true) then return true, value end
+        if d:find("carni", 1, true) or d:find("meat", 1, true)
+            or d:find("predator", 1, true) then return false, value end
+    end
+    -- Fallback final: apenas se o nome do Character identifica uma especie.
+    -- Se continuar desconhecido, nao assume que todo animal e herbivoro.
+    local normalized = char.Name:lower():gsub("[^%a]", "")
+    for _, name in ipairs(herbivoreNames) do
+        if normalized:find(name, 1, true) then return true, char.Name end
+    end
+    for _, name in ipairs(carnivoreNames) do
+        if normalized:find(name, 1, true) then return false, char.Name end
+    end
+    return nil, "ESPECIE NAO IDENTIFICADA"
 end
 
 local function getThirst()
@@ -711,7 +766,7 @@ local function amberReady(requireFullHealth)
     if not CONFIG.GetAmber then return false, "DESATIVADO" end
     if CONFIG.AutoGrass then
         local herb = herbivoreState()
-        if herb ~= false then return false, "PAUSADO: AUTO GRASS" end
+        if herb == true then return false, "PAUSADO: AUTO GRASS" end
     end
     if not CONFIG.AutoFood or not CONFIG.AutoDrink then
         return false, "REQUER FOOD + DRINK"
@@ -2422,10 +2477,10 @@ local function autoGrazeOnce()
     if not char or hum.Health <= 0 then return false end
     local herbivore, species = herbivoreState()
     grassDebug.species = species
-    if herbivore == false then
-        setActivity("AutoGrass", "SOMENTE HERBIVOROS")
+    if herbivore ~= true then
+        setActivity("AutoGrass", "ESPECIE NAO HERBIVORA/NAO IDENTIFICADA")
         if os.clock()-lastGrassNotice > 25 then
-            warn("AUTO GRASS: especie carnivora/nao herbivora:",species)
+            warn("AUTO GRASS: especie sem dieta herbivora confirmada:",species)
             lastGrassNotice=os.clock()
         end
         return false
@@ -2572,6 +2627,12 @@ _G.TGFeralV8933.getFeedDebug = function()
         remoteDispatches=feedDebug.remoteDispatches,
         keyboardFallbacks=feedDebug.keyboardFallbacks,
         windowFocused=windowFocused}
+end
+_G.TGFeralV8933.getHerbivoreStatus = function()
+    local isHerbivore, species = herbivoreState()
+    return {herbivore=isHerbivore, species=species,
+        autoGrass=CONFIG.AutoGrass, hunger=getHunger(),
+        activity=activity.AutoGrass, prompt=grassPromptState()}
 end
 _G.TGFeralV8933.getGrassDebug = function()
     local status={}
@@ -4566,7 +4627,7 @@ local function travelNeedsToStop(char, hum)
     local drinkQuest = CONFIG.AutoDrink and questPending("AGUA", questGenericDrink) or nil
     local hungerLimit = foodQuest and math.max(CONFIG.HungerStart, CONFIG.QuestEatStart) or CONFIG.HungerStart
     local thirstLimit = drinkQuest and math.max(CONFIG.DrinkStart, CONFIG.QuestDrinkStart) or CONFIG.DrinkStart
-    if CONFIG.AutoGrass and herbivoreState() ~= false and h and h <= CONFIG.GrassStart then return true, "grama" end
+    if CONFIG.AutoGrass and herbivoreState() == true and h and h <= CONFIG.GrassStart then return true, "grama" end
     if CONFIG.AutoFood and h and h <= hungerLimit then return true, "comida" end
     if CONFIG.AutoDrink and t and t <= thirstLimit then return true, "agua" end
     if hum.MaxHealth > 0 and hum.Health / hum.MaxHealth * 100 < CONFIG.MinHealthPercent then
@@ -5030,7 +5091,7 @@ task.spawn(function()
                 task.wait(3)
             else
                 local herbivore = herbivoreState()
-                local grassMode = CONFIG.AutoGrass and herbivore ~= false
+                local grassMode = CONFIG.AutoGrass and herbivore == true
                 local grassQuest = grassMode and CONFIG.AutoQuest and questPending("PASTO") or nil
                 local grassTrigger = grassQuest and math.max(CONFIG.GrassStart, CONFIG.QuestEatStart) or CONFIG.GrassStart
                 local foodQuest = CONFIG.AutoFood and not grassMode and not CONFIG.GetAmber and questPending("COMIDA") or nil
@@ -5046,8 +5107,8 @@ task.spawn(function()
 
                 if not CONFIG.AutoFood or grassMode then feeding = false end
                 if not grassMode then grazing = false end
-                if CONFIG.AutoGrass and herbivore == false then
-                    setActivity("AutoGrass", "SOMENTE HERBIVOROS")
+                if CONFIG.AutoGrass and herbivore ~= true then
+                    setActivity("AutoGrass", "ESPECIE NAO HERBIVORA/NAO IDENTIFICADA")
                 end
                 if grassMode and not grazing and h <= grassTrigger then
                     grazing = true
@@ -5293,8 +5354,9 @@ end)
 -- if _G.TGFeralV8933 then _G.TGFeralV8933.stop() end  -- encerrar tudo (nao ha X)
 -- Status: print(_G.TGFeralV8933 and _G.TGFeralV8933.isActive())
 -- Get Amber livre: _G.TGFeralV8933.config.GetAmber = true (prefira o botao do painel)
--- Grass: ligue AUTO EAT GRASS no painel como herbivoro e fique proximo a grama.
+-- Grass: AUTO EAT GRASS inicia ON e so pasta com especie herbivora identificada.
 -- Debug: print(_G.TGFeralV8933.getGrassDebug().status)
+-- Especie: print(_G.TGFeralV8933.getHerbivoreStatus().species)
 -- Scan manual: print(_G.TGFeralV8933.scanGrass().target)
 -- Se nenhuma grama for encontrada, envie logs/nomes dos patches para refinar scanner.
 -- Descida: print(_G.TGFeralV8933.getDescentStatus().last)
