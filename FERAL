@@ -1,6 +1,6 @@
--- THE GOAT FERAL V8.9.28 - AUTO QUEST
+-- THE GOAT FERAL V8.9.29 - AUTO QUEST
 -- BASE: V8.9.23, com as funcoes e melhorias preservadas da V8.9.21.
--- REVISAO: estabilidade + ataque pela distancia real da presa, sem aura.
+-- REVISAO: descida autonoma por terreno ate margem de agua, sem saltos.
 -- Mantem painel ET neon, coordenadas, nado e protecoes de descanso.
 -- Experimental: confirmacao de dano depende das mecanicas do jogo.
 -- Para Potassium ou executores Luau compativeis.
@@ -25,10 +25,10 @@ for _, eventName in ipairs({"WindowFocused", "WindowFocusReleased"}) do
     end
 end
 
--- Desliga versoes antigas antes de iniciar a V8.9.28.
+-- Desliga versoes antigas antes de iniciar a V8.9.29.
 _G.TGAutoEat = (_G.TGAutoEat or 0) + 1
 _G.TGFeralDrinkSession = (_G.TGFeralDrinkSession or 0) + 1
-for _, name in ipairs({"TGFeralEatV2", "TGFeralEatV3", "TGFeralEatV4", "TGFeralEatV5", "TGFeralHuntV6", "TGFeralV7", "TGFeralV8", "TGFeralV81", "TGFeralV82", "TGFeralV83", "TGFeralV84", "TGFeralV85", "TGFeralV86", "TGFeralV87", "TGFeralV88", "TGFeralV89", "TGFeralV891", "TGFeralV892", "TGFeralV893", "TGFeralV894", "TGFeralV895", "TGFeralV896", "TGFeralV897", "TGFeralV898", "TGFeralV899", "TGFeralV8910", "TGFeralV8911", "TGFeralV8912", "TGFeralV8913", "TGFeralV8914", "TGFeralV8915", "TGFeralV8916", "TGFeralV8917", "TGFeralV8918", "TGFeralV8919", "TGFeralV8920", "TGFeralV8921", "TGFeralV8922", "TGFeralV8923", "TGFeralV8924", "TGFeralV8925", "TGFeralV8927", "TGFeralV8928", "TGAttackLab", "TGAttackLabV2"}) do
+for _, name in ipairs({"TGFeralEatV2", "TGFeralEatV3", "TGFeralEatV4", "TGFeralEatV5", "TGFeralHuntV6", "TGFeralV7", "TGFeralV8", "TGFeralV81", "TGFeralV82", "TGFeralV83", "TGFeralV84", "TGFeralV85", "TGFeralV86", "TGFeralV87", "TGFeralV88", "TGFeralV89", "TGFeralV891", "TGFeralV892", "TGFeralV893", "TGFeralV894", "TGFeralV895", "TGFeralV896", "TGFeralV897", "TGFeralV898", "TGFeralV899", "TGFeralV8910", "TGFeralV8911", "TGFeralV8912", "TGFeralV8913", "TGFeralV8914", "TGFeralV8915", "TGFeralV8916", "TGFeralV8917", "TGFeralV8918", "TGFeralV8919", "TGFeralV8920", "TGFeralV8921", "TGFeralV8922", "TGFeralV8923", "TGFeralV8924", "TGFeralV8925", "TGFeralV8927", "TGFeralV8928", "TGFeralV8929", "TGAttackLab", "TGAttackLabV2"}) do
     local old = _G[name]
     if type(old) == "table" and type(old.stop) == "function" then
         pcall(old.stop)
@@ -49,7 +49,7 @@ local CONFIG = {
     AutoGrass = false,
     GrassStart = 80,            -- comeca a pastar
     GrassStop = 95,             -- para quando alimentado
-    FeedRemoteFirst = true,     -- V8.9.28: WolfActions Feed (funciona sem simular E)
+    FeedRemoteFirst = true,     -- V8.9.29: WolfActions Feed (funciona sem simular E)
     FeedFallbackKey = true,    -- tecla E apenas se comando remoto nao puder ser enviado
     GrassSearchRadius = 220,   -- buscar patches proximos, sem scan global pesado
     GrassScanMaxParts = 1600,
@@ -202,21 +202,33 @@ local CONFIG = {
     WaterBankSearchRadius = 14,  -- margem proxima da agua para tecla E ter alcance
     WaterFailedRadius = 105,     -- evitar repetir margem inacessivel do mesmo lago
     WaterFailedCooldown = 140,
-    WaterTravelTimeout = 240
+    WaterTravelTimeout = 240,
+    -- Busca uma descida por terra quando a agua esta abaixo de um barranco.
+    WaterDescentEnabled = true,
+    WaterDescentSearchRadius = 390, -- raio da malha ao redor do animal
+    WaterDescentGridStep = 9, -- espacamento entre celulas (studs)
+    WaterDescentMaxNodes = 4800, -- limite de nos expandidos por tentativa
+    WaterDescentTimeBudget = 8, -- segundos por tentativa
+    WaterDescentMaxCandidates = 8, -- margens da mesma fonte examinadas
+    WaterDescentSpeed = 15, -- mais lento nas curvas e inclinacoes
+    WaterDescentLookAhead = 5, -- conserva o sensor anti-queda ativo
+    WaterDescentMaxReplans = 2 -- tenta nova rota apos obstaculo/travamento
 }
 
 local active = true
 local controlsEpoch = 0 -- interrompe operacoes antigas quando qualquer botao muda
 local destroyPanel = nil
 local stopQuestTabHooks = nil
-_G.TGFeralV8928Counter = (_G.TGFeralV8928Counter or 0) + 1
-local sessionID = _G.TGFeralV8928Counter
+_G.TGFeralV8929Counter = (_G.TGFeralV8929Counter or 0) + 1
+local sessionID = _G.TGFeralV8929Counter
 local movementConnection = nil
 local movementHum, movementRoot, savedWalkSpeed = nil, nil, nil
 local savedAutoRotate, savedAlign, savedAlignEnabled = nil, nil, nil
 local failedUntil = setmetatable({}, {__mode = "k"})
 local nextDrinkTry = 0
 local navLog = {} -- historico compacto (ultimas 60 mensagens)
+local descentStats={attempts=0, successes=0, last="NAO TESTADO",
+    nodes=0, waypoints=0, time=0, water=nil}
 local amberKills = 0
 local totalConfirmedKills = 0
 local countedNPCKills = setmetatable({}, {__mode = "k"})
@@ -304,7 +316,7 @@ local function getThirst()
     return getPercent("Thirst") or getPercent("Hydration")
 end
 
--- === AUTO QUEST V8.9.28 ===
+-- === AUTO QUEST V8.9.29 ===
 -- O jogo controla a lista de quests e os progressos. Este bloco so le a GUI.
 -- A GUI mostra 3 quests por aba; guardamos as ultimas quests vistas de cada aba.
 -- Coordenadas de Alder Creek, Beaver Ponds e Elk Crossing foram verificadas no jogo.
@@ -649,7 +661,7 @@ local function faceTarget(root, target, immediate)
     end
 end
 
--- === V8.9.28: PROTECAO CONTRA AFOGAMENTO ===
+-- === V8.9.29: PROTECAO CONTRA AFOGAMENTO ===
 -- Nao modifica Terrain nem teleporta o personagem. O servidor ainda pode corrigir fisica.
 local waterParams = RaycastParams.new()
 waterParams.FilterType = Enum.RaycastFilterType.Include
@@ -902,7 +914,7 @@ local function stop()
     end
 end
 
-_G.TGFeralV8928 = {
+_G.TGFeralV8929 = {
     stop = stop,
     config = CONFIG,
     isActive = function() return active end,
@@ -924,6 +936,12 @@ _G.TGFeralV8928 = {
     getTotalKills = function() return totalConfirmedKills end,
     getKillStats = function() return {farm = amberKills, total = totalConfirmedKills} end,
     getNavLog = function() return table.concat(navLog, "\n") end,
+    getDescentStatus = function()
+        return {enabled=CONFIG.WaterDescentEnabled, attempts=descentStats.attempts,
+            successes=descentStats.successes, last=descentStats.last,
+            nodes=descentStats.nodes, waypoints=descentStats.waypoints,
+            time=descentStats.time, water=descentStats.water}
+    end,
     getMapAliases = function() return MAP_ALIASES end,
     amberCanRun = function() return amberReady(true) end,
     swimStatus = function()
@@ -945,7 +963,7 @@ _G.TGFeralV8928 = {
     end
 }
 
--- === PAINEL TIGER / AMBER PREMIUM V8.9.28 ===
+-- === PAINEL TIGER / AMBER PREMIUM V8.9.29 ===
 -- Interface Roblox real (nao a imagem estatica). Logo usa emoji de tigre,
 -- evitando rbxassetid inventado; pode-se informar um ID proprio opcional abaixo.
 do
@@ -1070,7 +1088,7 @@ do
             },emblem)
         end
         textLabel(header,"THE GOAT",19,C.white,offset(75,15),offset(201,25),true)
-        textLabel(header,"FERAL  |  V8.9.28 NEON",10,C.lime,offset(76,41),offset(225,18),true)
+        textLabel(header,"FERAL  |  V8.9.29 NEON",10,C.lime,offset(76,41),offset(225,18),true)
         local mini=uiNew("TextButton", {
             Name="Minimize", Position=UDim2.new(1,-45,0,16),Size=offset(30,30),
             Text="−",Font=Enum.Font.GothamBold,TextSize=20,TextColor3=C.white,
@@ -1250,13 +1268,13 @@ do
                 task.wait(1.2)
             end
         end)
-        print("PAINEL ALIEN NEON THE GOAT V8.9.28: pronto | sem X | minimiza com -")
+        print("PAINEL ALIEN NEON THE GOAT V8.9.29: pronto | sem X | minimiza com -")
     else
         warn("PAINEL THE GOAT: PlayerGui nao encontrado")
     end
 end
 
--- Inicia o scanner somente depois que _G.TGFeralV8928 existe.
+-- Inicia o scanner somente depois que _G.TGFeralV8929 existe.
 -- Dessa forma, nunca tenta acessar getQuests em um objeto nil.
 task.spawn(function()
     while active do
@@ -1269,7 +1287,7 @@ task.spawn(function()
     end
 end)
 
--- === V8.9.28 | ALVO MOVEL ===
+-- === V8.9.29 | ALVO MOVEL ===
 -- Posicao prevista + estimativa da velocidade; nao teleporta o personagem.
 -- O controlador de movimento continua unico e o anti-queda permanece ativo.
 local function makePreyTracker(npc, ourRoot, leadSeconds, maxLead)
@@ -1324,7 +1342,7 @@ local function makePreyTracker(npc, ourRoot, leadSeconds, maxLead)
     return predictedPosition, getVelocity, getActualPosition
 end
 
-local function startMovement(hum, root, targetPosition, stopDistance, speedOverride, allowWater, followOptions)
+local function startMovement(hum, root, targetPosition, stopDistance, speedOverride, allowWater, followOptions, travelOptions)
     if not active or not hum or not root or not hum.Parent or not root.Parent
         or hum.Health <= 0 then
         return function() return math.huge, false, true, "CANCELADO", "SEM PERSONAGEM ATIVO" end
@@ -1408,7 +1426,8 @@ local function startMovement(hum, root, targetPosition, stopDistance, speedOverr
             if not ground then return false, "SEM_SOLO_FRENTE" end
             local diff = ground.Position.Y - prevY
             if ground.Material == Enum.Material.Water then
-                if not (CONFIG.WaterAllowCrossing or allowWater) then
+                if (travelOptions and travelOptions.dryOnly)
+                    or not (CONFIG.WaterAllowCrossing or allowWater) then
                     return false, "AGUA_FRENTE"
                 end
                 -- O nivel da agua nao e um degrau solido; mantem o filtro anti-queda.
@@ -1434,6 +1453,8 @@ local function startMovement(hum, root, targetPosition, stopDistance, speedOverr
     end
 
     local function recalc(goal, prefer)
+        -- A descida ja possui rota calculada por amostras do terreno.
+        if travelOptions and travelOptions.routePlanned then return end
         local now = os.clock()
         if nav.computing or now - nav.lastPath < CONFIG.SafePathRecalc then return end
         nav.computing = true
@@ -1503,7 +1524,7 @@ local function startMovement(hum, root, targetPosition, stopDistance, speedOverr
     end
 
     local function selectDirection(from, wanted, direct)
-        local probe = CONFIG.SafeLookAhead
+        local probe = (travelOptions and travelOptions.lookAhead) or CONFIG.SafeLookAhead
         local ok, reason = safeStep(from, wanted, probe)
         if ok then return wanted, "DIRETO", reason end
         if nav.steer and os.clock() < nav.steerUntil then
@@ -1841,7 +1862,7 @@ pressE = function()
     end)
 end
 
--- === AUTO EAT GRASS V8.9.28 ===
+-- === AUTO EAT GRASS V8.9.29 ===
 -- Funciona com prompts REAIS (EAT/GRAZE), nao inventa RemoteEvents de grama.
 -- A estrutura exata dos patches no FERAL nao esta documentada nesta base:
 -- o scanner tenta tags e nomes fisicos comuns e confirma resultado por Hunger.
@@ -1963,7 +1984,7 @@ local function scanNearbyGrass()
     return best, bestPoint, bestDistance
 end
 
--- === AUTO GRASS EXPLORADOR V8.9.28 ===
+-- === AUTO GRASS EXPLORADOR V8.9.29 ===
 -- Quando nao ha grama conhecida no raio local, avanca por terrenos secos
 -- usando o mesmo navegador seguro. Faz scan apenas AO REDOR do personagem,
 -- nao tenta varrer todo o workspace em um unico frame.
@@ -2242,7 +2263,7 @@ local function autoGrazeOnce()
     return false
 end
 
-_G.TGFeralV8928.getFeedDebug = function()
+_G.TGFeralV8929.getFeedDebug = function()
     return {lastAction=feedDebug.lastAction, lastMethod=feedDebug.lastMethod,
         lastAt=feedDebug.lastAt, lastError=feedDebug.lastError,
         remoteAttempts=feedDebug.remoteAttempts,
@@ -2250,7 +2271,7 @@ _G.TGFeralV8928.getFeedDebug = function()
         keyboardFallbacks=feedDebug.keyboardFallbacks,
         windowFocused=windowFocused}
 end
-_G.TGFeralV8928.getGrassDebug = function()
+_G.TGFeralV8929.getGrassDebug = function()
     local status={}
     for k,v in pairs(grassDebug) do status[k]=v end
     status.exploreEnabled=CONFIG.GrassExploreEnabled
@@ -2261,7 +2282,7 @@ _G.TGFeralV8928.getGrassDebug = function()
     status.exploreLastOutcome=grassExplore.lastOutcome
     return status
 end
-_G.TGFeralV8928.scanGrass = function()
+_G.TGFeralV8929.scanGrass = function()
     local obj, pos, distance = scanNearbyGrass()
     return {target=obj and obj:GetFullName() or nil,
         position=pos, distance=distance, candidates=grassDebug.found}
@@ -2302,7 +2323,7 @@ local function pressRestKey(method, holdSeconds)
     return ok,err,method
 end
 
--- V8.9.28: bloqueia a automacao ate CONFIRMAR que o lobo levantou.
+-- V8.9.29: bloqueia a automacao ate CONFIRMAR que o lobo levantou.
 -- Se a animacao custom nao expuser estado, exige confirmacao visual manual.
 local restGuard = {
     blocked=false, character=nil, knownRestTracks={}, observedRest=false,
@@ -2447,13 +2468,13 @@ local function restGateReady()
         warn("AUTO QUEST REST: CAÇA/TRAVEL/FOOD/DRINK BLOQUEADOS; " ..
             "saida do descanso ainda nao confirmada | " .. tostring(restGuard.lastSource))
         warn("AUTO QUEST REST: se o lobo JA estiver em pe, use " ..
-            "_G.TGFeralV8928.confirmStanding() apos conferir visualmente")
+            "_G.TGFeralV8929.confirmStanding() apos conferir visualmente")
     end
     return false
 end
 
 -- Diagnostic API methods are registered only after rest helpers exist.
-_G.TGFeralV8928.getRestStatus = function()
+_G.TGFeralV8929.getRestStatus = function()
     local char,hum=actor()
     local resting,source=nil,"sem personagem"
     if char and hum then resting,source=detectResting(char,hum) end
@@ -2463,7 +2484,7 @@ _G.TGFeralV8928.getRestStatus = function()
         inputOK=restGuard.lastInputOK, progress=restGuard.lastProgress,
         failedStarts=restGuard.failedStarts, inputError=restGuard.lastInputError}
 end
-_G.TGFeralV8928.confirmStanding = function()
+_G.TGFeralV8929.confirmStanding = function()
     if not restGuard.blocked then return true end
     local char,hum=actor()
     if not char or not hum then return false end
@@ -2840,7 +2861,7 @@ safeRescueConnection=RunService.Heartbeat:Connect(function()
     end
 end)
 
--- === AUTO DRINK V8.9.28: MARGEM SEGURA, NAO VOXEL DE AGUA ===
+-- === AUTO DRINK V8.9.29: MARGEM SEGURA, NAO VOXEL DE AGUA ===
 -- Escolhe solo seco ao lado da agua e recusa lago abaixo de barranco.
 -- Nao reduz a protecao anti-queda nem altera o Terrain.
 local failedWater = {}
@@ -2917,12 +2938,274 @@ local function findAccessibleBank(waterPos, fromPos)
     return bestBank
 end
 
+-- === DESNIVEL V8.9.29: A* SOBRE SOLO TRANSITAVEL ===
+-- So cria uma rota se encontrar um caminho continuo por terra ate a margem.
+-- Nao aumenta SafeMaxDrop, nao teleporta, nao pula e nao edita o Terrain.
+local descentWetRay=RaycastParams.new()
+descentWetRay.FilterType=Enum.RaycastFilterType.Include
+descentWetRay.FilterDescendantsInstances={Terrain}
+descentWetRay.IgnoreWater=false
+
+local function descentBanks(water, origin)
+    local found,seen={},{}
+    for _,radius in ipairs({4,6,9,12,14}) do
+        if radius<=CONFIG.WaterBankSearchRadius then
+            for i=0,15 do
+                local angle=math.pi*2*i/16
+                local x=water.X+math.cos(angle)*radius
+                local z=water.Z+math.sin(angle)*radius
+                local hit=workspace:Raycast(Vector3.new(x,water.Y+46,z),
+                    Vector3.new(0,-100,0),waterLandRay)
+                if hit and hit.Material~=Enum.Material.Water
+                    and hit.Normal.Y>=math.max(0.72,CONFIG.SafeGroundSlopeY)
+                    and hit.Position.Y>=water.Y-1.5 and hit.Position.Y<=water.Y+5 then
+                    local key=math.floor(x/4)..":"..math.floor(z/4)
+                    if not seen[key] then
+                        seen[key]=true
+                        table.insert(found, Vector3.new(x,hit.Position.Y+2.5,z))
+                    end
+                end
+            end
+        end
+    end
+    -- Prefere margens realmente perto da agua para que Feed drink tenha alcance.
+    table.sort(found,function(a,b)
+        local sa=horizontal(a,water).Magnitude*4+horizontal(origin,a).Magnitude*0.15
+        local sb=horizontal(b,water).Magnitude*4+horizontal(origin,b).Magnitude*0.15
+        return sa<sb
+    end)
+    -- Deduplica alvos proximos: evita que todos os candidatos fiquem no mesmo canto.
+    local result={}
+    for _,p in ipairs(found) do
+        local unique=true
+        for _,q in ipairs(result) do
+            if horizontal(p,q).Magnitude<8 then unique=false break end
+        end
+        if unique then table.insert(result,p) end
+        if #result>=CONFIG.WaterDescentMaxCandidates then break end
+    end
+    return result
+end
+
+-- Caminho A* na superficie do Terrain; raycasts detectam aterros, agua e rampas.
+-- Os custos e a heuristica sao horizontais; cada aresta e testada em subpassos.
+local function planWaterDescent(waterPos, fromPos, scanEpoch)
+    if not CONFIG.WaterDescentEnabled or typeof(waterPos)~="Vector3"
+        or waterIsBlocked(waterPos) then return nil end
+    if horizontal(fromPos,waterPos).Magnitude>CONFIG.WaterDescentSearchRadius-10 then
+        return nil
+    end
+    descentStats.attempts+=1
+    descentStats.water=waterPos
+    local started=os.clock()
+    local banks=descentBanks(waterPos,fromPos)
+    if #banks==0 then
+        descentStats.last="MARGEM SECA NAO ENCONTRADA"
+        return nil
+    end
+
+    local step=CONFIG.WaterDescentGridStep
+    local maxRadius=CONFIG.WaterDescentSearchRadius
+    local maxRadius2=maxRadius*maxRadius
+    -- Usa somente a camada superior do Terrain (nao vai para solo sob o lago).
+    local rayY=math.max(fromPos.Y,waterPos.Y)+135
+    local rayDown=math.max(350,maxRadius+180)
+    local samples={}
+    local function surface(x,z)
+        local key=math.floor(x*5+0.5)..":"..math.floor(z*5+0.5)
+        local cached=samples[key]
+        if cached~=nil then return cached or nil end
+        local hit=workspace:Raycast(Vector3.new(x,rayY,z),
+            Vector3.new(0,-rayDown,0),descentWetRay)
+        local value=nil
+        if hit and hit.Material~=Enum.Material.Water
+            and hit.Normal.Y>=CONFIG.SafeGroundSlopeY then
+            value=Vector3.new(x,hit.Position.Y+2.5,z)
+        end
+        samples[key]=value or false
+        return value
+    end
+    -- Confere inclinacao e altura intermediaria, nao apenas extremos dos nos.
+    local function edgeOK(a,b)
+        local vec=horizontal(a,b)
+        local length=vec.Magnitude
+        if length<0.01 then return math.abs(a.Y-b.Y)<=CONFIG.SafeMaxClimb end
+        local count=math.max(1,math.ceil(length/2.8))
+        local last=a
+        for k=1,count do
+            local alpha=k/count
+            local p=surface(a.X+(b.X-a.X)*alpha,a.Z+(b.Z-a.Z)*alpha)
+            if not p then return false end
+            local delta=p.Y-last.Y
+            if delta>CONFIG.SafeMaxClimb or delta< -CONFIG.SafeMaxDrop then
+                return false
+            end
+            last=p
+        end
+        return math.abs(last.Y-b.Y)<=3
+    end
+
+    local nodes={}
+    local function nodeKey(ix,iz) return ix..":"..iz end
+    local function getNode(ix,iz)
+        local key=nodeKey(ix,iz)
+        local value=nodes[key]
+        if value~=nil then return value or nil end
+        local dx,dz=ix*step,iz*step
+        if dx*dx+dz*dz>maxRadius2 then
+            nodes[key]=false
+            return nil
+        end
+        local pos=surface(fromPos.X+dx,fromPos.Z+dz)
+        if not pos then nodes[key]=false return nil end
+        value={key=key,x=ix,z=iz,pos=pos,g=math.huge,parent=nil,closed=false}
+        nodes[key]=value
+        return value
+    end
+    local start=getNode(0,0)
+    if not start or math.abs(start.pos.Y-fromPos.Y)>10 then
+        descentStats.last="SEM SOLO SEGURO SOB O ANIMAL"
+        return nil
+    end
+
+    -- Heap binario para evitar varrer milhares de celulas a cada passo.
+    local heap={}
+    local function push(node,priority)
+        local item={node=node,priority=priority,g=node.g}
+        local i=#heap+1
+        while i>1 do
+            local parent=math.floor(i/2)
+            if heap[parent].priority<=priority then break end
+            heap[i]=heap[parent]
+            i=parent
+        end
+        heap[i]=item
+    end
+    local function pop()
+        local result=heap[1]
+        if not result then return nil end
+        local last=table.remove(heap)
+        if #heap>0 then
+            local i=1
+            while i*2<=#heap do
+                local j=i*2
+                if j<#heap and heap[j+1].priority<heap[j].priority then j+=1 end
+                if heap[j].priority>=last.priority then break end
+                heap[i]=heap[j]
+                i=j
+            end
+            heap[i]=last
+        end
+        return result
+    end
+    local function heuristic(p)
+        local distance=math.huge
+        for _,b in ipairs(banks) do
+            local d=horizontal(p,b).Magnitude
+            if d<distance then distance=d end
+        end
+        return distance
+    end
+    start.g=0
+    push(start,heuristic(start.pos))
+    local offsets={{1,0},{-1,0},{0,1},{0,-1},{1,1},{1,-1},{-1,1},{-1,-1}}
+    local expanded=0
+    local doneNode,doneBank=nil,nil
+    local stopReason="SEM PASSAGEM SEGURA"
+    while #heap>0 do
+        if not active or not CONFIG.AutoDrink or scanEpoch~=controlsEpoch then
+            descentStats.last="CANCELADO"
+            return nil
+        end
+        if os.clock()-started>CONFIG.WaterDescentTimeBudget then
+            stopReason="TEMPO LIMITE"
+            break
+        end
+        if expanded>=CONFIG.WaterDescentMaxNodes then
+            stopReason="LIMITE DE CELULAS"
+            break
+        end
+        local item=pop()
+        local current=item and item.node
+        if current and not current.closed and item.g==current.g then
+            current.closed=true
+            expanded+=1
+            for _,bank in ipairs(banks) do
+                if horizontal(current.pos,bank).Magnitude<=step*1.7
+                    and edgeOK(current.pos,bank) then
+                    doneNode,doneBank=current,bank
+                    break
+                end
+            end
+            if doneNode then break end
+            for _,offset in ipairs(offsets) do
+                local nextNode=getNode(current.x+offset[1],current.z+offset[2])
+                if nextNode and not nextNode.closed and edgeOK(current.pos,nextNode.pos) then
+                    local length=horizontal(current.pos,nextNode.pos).Magnitude
+                    local rise=math.max(0,nextNode.pos.Y-current.pos.Y)
+                    local cost=length+rise*0.45
+                    local nextG=current.g+cost
+                    if nextG<nextNode.g then
+                        nextNode.g=nextG
+                        nextNode.parent=current
+                        push(nextNode,nextG+heuristic(nextNode.pos))
+                    end
+                end
+            end
+            if expanded%45==0 then task.wait() end
+        end
+    end
+    descentStats.nodes=expanded
+    descentStats.time=os.clock()-started
+    if not doneNode then
+        descentStats.last=stopReason
+        warn("AUTO DRINK DESCIDA: sem rota testada |",stopReason,
+            "| celulas",expanded,"| tempo",math.floor(descentStats.time*10)/10)
+        return nil
+    end
+
+    local route={}
+    local cursor=doneNode
+    while cursor and cursor~=start do
+        table.insert(route,1,cursor.pos)
+        cursor=cursor.parent
+    end
+    table.insert(route,doneBank)
+    -- Evita microtrechos desnecessarios sem substituir rampas por atalhos.
+    local clean={}
+    for _,point in ipairs(route) do
+        if #clean==0 or horizontal(clean[#clean],point).Magnitude>=1.5 then
+            table.insert(clean,point)
+        end
+    end
+    descentStats.last="ROTA ENCONTRADA"
+    descentStats.successes+=1
+    descentStats.waypoints=#clean
+    print("AUTO DRINK DESCIDA: ROTA ENCONTRADA |",#clean,"trechos |",
+        expanded,"celulas | do Y",math.floor(fromPos.Y),"ate Y",math.floor(doneBank.Y))
+    return clean,doneBank
+end
+
+local function descentCandidateAdd(items,water,origin)
+    if not CONFIG.WaterDescentEnabled or typeof(water)~="Vector3" then return end
+    if horizontal(water,origin).Magnitude>CONFIG.WaterDescentSearchRadius-10
+        or waterIsBlocked(water) then return end
+    for _,p in ipairs(items) do
+        if horizontal(p,water).Magnitude<55 then return end
+    end
+    table.insert(items,water)
+    table.sort(items,function(a,b)
+        return horizontal(a,origin).Magnitude<horizontal(b,origin).Magnitude
+    end)
+    while #items>3 do table.remove(items) end
+end
+
 -- Busca agua dentro de um pequeno bloco (em voxels), sem carregar o mapa inteiro.
 local function scanWaterBlock(center, halfWidth, referencePos)
     local resolution=4
     local region=Region3.new(
-        center-Vector3.new(halfWidth,24,halfWidth),
-        center+Vector3.new(halfWidth,16,halfWidth)
+        center-Vector3.new(halfWidth,100,halfWidth),
+        center+Vector3.new(halfWidth,20,halfWidth)
     ):ExpandToGrid(resolution)
     local ok,materials,occupancy=pcall(function()
         return Terrain:ReadVoxels(region,resolution)
@@ -2967,11 +3250,19 @@ local function findWater()
     if not root then return nil end
     local origin=root.Position
 
+    local descentCandidates={}
     local nearby=findLocalWater(origin)
     if nearby then
         local bank=findAccessibleBank(nearby,origin)
         if bank then
             return bank,"Margem Terrain local",horizontal(origin,bank).Magnitude,nearby
+        end
+        -- Caso agua esteja abaixo, tenta achar a descida ANTES de varrer o mapa.
+        descentCandidateAdd(descentCandidates,nearby,origin)
+        local route,shore=planWaterDescent(nearby,origin,scanEpoch)
+        if route and shore then
+            return shore,"Descida autonoma local",
+                horizontal(origin,shore).Magnitude,nearby,route
         end
     end
 
@@ -2994,6 +3285,16 @@ local function findWater()
             if not active or not CONFIG.AutoDrink or scanEpoch~=controlsEpoch then return nil end
             if os.clock()-started>CONFIG.WaterScanTimeBudget then
                 warn("AUTO DRINK MARGEM: tempo limite do scan; ultimo anel:",ring)
+                -- Candidatos baixos coletados no scan ainda podem ter uma descida.
+                for _,water in ipairs(descentCandidates) do
+                    if active and CONFIG.AutoDrink and scanEpoch==controlsEpoch then
+                        local route,shore=planWaterDescent(water,origin,scanEpoch)
+                        if route and shore then
+                            return shore,"Descida autonoma Terrain",
+                                horizontal(origin,shore).Magnitude,water,route
+                        end
+                    end
+                end
                 return nil
             end
             local angle=2*math.pi*i/count
@@ -3013,6 +3314,7 @@ local function findWater()
                 water=scanWaterBlock(Vector3.new(x,y,z),ring<=350 and 38 or 48,origin)
             end
             if water then
+                descentCandidateAdd(descentCandidates,water,origin)
                 local bank=findAccessibleBank(water,origin)
                 if bank then
                     local dist=horizontal(origin,bank).Magnitude
@@ -3030,7 +3332,15 @@ local function findWater()
             return bestBank,"Margem Terrain dinamico",bestDist,bestWater
         end
     end
-    warn("AUTO DRINK MARGEM: sem margem acessivel; nao vou pular de barrancos")
+    for _,water in ipairs(descentCandidates) do
+        if not active or not CONFIG.AutoDrink or scanEpoch~=controlsEpoch then return nil end
+        local route,shore=planWaterDescent(water,origin,scanEpoch)
+        if route and shore then
+            return shore,"Descida autonoma Terrain",
+                horizontal(origin,shore).Magnitude,water,route
+        end
+    end
+    warn("AUTO DRINK MARGEM: sem margem/descida segura identificada; sem saltos")
     return nil
 end
 
@@ -3054,7 +3364,7 @@ local function drinkOnce()
     nextDrinkTry = os.clock() + 8
     print("AUTO DRINK: iniciando busca | Sede:", tostring(getThirst()))
 
-    local target, source, initialDistance, sourceWater = findWater()
+    local target, source, initialDistance, sourceWater, descentRoute = findWater()
     if not CONFIG.AutoDrink or controlsEpoch ~= actionEpoch then return end
     if not target then
         failedScanPosition, failedScanCharacter = scanPosition, scanCharacter
@@ -3069,21 +3379,35 @@ local function drinkOnce()
     print("AUTO DRINK MARGEM: DESTINO SECO:", tostring(target), "| Origem:", source,
         "| Distancia:", math.floor(initialDistance), "| agua:", tostring(sourceWater))
 
-    local getDistance = startMovement(hum, root, function()
-        return target
-    end, function()
-        if math.abs(root.Position.Y - target.Y) > 11 then
-            return 0.5
-        end
-        return CONFIG.WaterStopDistance
-    end, function(dist)
-        if dist > 45 then
-            return CONFIG.WaterCruiseSpeed
-        elseif dist > 15 then
-            return CONFIG.WaterMoveSpeed
-        end
-        return 7
-    end, true)
+    local descentIndex=1
+    local descentReplans=0
+    local moveTarget=descentRoute and descentRoute[descentIndex] or target
+    local descentPrevPos=root.Position
+    local function runDrinkMovement()
+        return startMovement(hum, root, function()
+            return moveTarget
+        end, function()
+            if descentRoute and descentIndex<#descentRoute then return 2.7 end
+            if math.abs(root.Position.Y - moveTarget.Y) > 11 then
+                return 0.5
+            end
+            return CONFIG.WaterStopDistance
+        end, function(dist)
+            if descentRoute then return CONFIG.WaterDescentSpeed end
+            if dist > 45 then
+                return CONFIG.WaterCruiseSpeed
+            elseif dist > 15 then
+                return CONFIG.WaterMoveSpeed
+            end
+            return 7
+        end, not descentRoute, nil,
+            descentRoute and {routePlanned=true,dryOnly=true,
+                lookAhead=CONFIG.WaterDescentLookAhead} or nil)
+    end
+    if descentRoute then
+        print("AUTO DRINK DESCIDA: iniciando",#descentRoute,"trechos de solo")
+    end
+    local getDistance=runDrinkMovement()
 
     local started = os.clock()
     local lastBest = initialDistance
@@ -3091,28 +3415,95 @@ local function drinkOnce()
     local lastWaterScan = started
     local lastLog = 0
     local arrived = false
-    local timeout = math.min(CONFIG.WaterTravelTimeout,
-        math.max(35, initialDistance / 8 + 25))
+    local routeLength=0
+    if descentRoute then
+        local prev=root.Position
+        for _,point in ipairs(descentRoute) do
+            routeLength+=horizontal(prev,point).Magnitude
+            prev=point
+        end
+    end
+    local timeout=math.min(CONFIG.WaterTravelTimeout,
+        descentRoute and math.max(95,routeLength/math.max(6,CONFIG.WaterDescentSpeed)*3+45)
+            or math.max(35,initialDistance/8+25))
 
     while active and CONFIG.AutoDrink and controlsEpoch == actionEpoch
         and player.Character == char and os.clock() - started < timeout do
         task.wait(0.25)
         if not root.Parent then break end
         local d, reached, navFailed, navMode = getDistance()
-        if navFailed and navMode ~= "RESGATE_AGUA" then
+        local stuckFor=os.clock()-lastAdvance
+        if descentRoute and horizontal(root.Position,descentPrevPos).Magnitude>2 then
+            descentPrevPos=root.Position
+            lastAdvance=os.clock()
+            stuckFor=0
+        end
+        local failedLeg=navFailed and navMode~="RESGATE_AGUA"
+        if descentRoute and (failedLeg or stuckFor>CONFIG.StuckTimeout)
+            and descentReplans<CONFIG.WaterDescentMaxReplans then
+            descentReplans+=1
+            stopMovement()
+            warn("AUTO DRINK DESCIDA: rota interrompida, recalculando",
+                descentReplans,"/",CONFIG.WaterDescentMaxReplans)
+            local newRoute,newBank=planWaterDescent(sourceWater,root.Position,actionEpoch)
+            if newRoute and newBank then
+                descentRoute=newRoute
+                target=newBank
+                descentIndex=1
+                moveTarget=descentRoute[1]
+                descentPrevPos=root.Position
+                lastAdvance=os.clock()
+                getDistance=runDrinkMovement()
+                -- Reconsidera o tempo para que a nova rota possa terminar.
+                timeout=math.min(CONFIG.WaterTravelTimeout,math.max(timeout,os.clock()-started+95))
+            else
+                warn("AUTO DRINK DESCIDA: nao encontrou rota alternativa")
+                break
+            end
+        elseif not descentRoute and CONFIG.WaterDescentEnabled and sourceWater
+            and (failedLeg or stuckFor>CONFIG.StuckTimeout) then
+            -- Mesmo com margem em altura aceitavel, a linha reta pode ter barranco.
+            -- Neste caso procura um caminho real em terra antes de desistir.
+            stopMovement()
+            warn("AUTO DRINK DESCIDA: caminho direto falhou; buscando contorno do desnivel")
+            local newRoute,newBank=planWaterDescent(sourceWater,root.Position,actionEpoch)
+            if newRoute and newBank then
+                descentRoute=newRoute
+                target=newBank
+                descentIndex=1
+                moveTarget=descentRoute[1]
+                descentPrevPos=root.Position
+                lastAdvance=os.clock()
+                getDistance=runDrinkMovement()
+                timeout=math.min(CONFIG.WaterTravelTimeout,math.max(timeout,os.clock()-started+110))
+            else
+                warn("AUTO DRINK DESCIDA: nao existe caminho seguro identificado")
+                break
+            end
+        elseif failedLeg then
             warn("AUTO DRINK MARGEM: navegacao sem rota segura; tentando outra fonte")
             break
-        end
-        if reached then
-            arrived = true
-            break
-        end
-        if d < lastBest - 0.5 then
+        elseif reached then
+            if descentRoute and descentIndex<#descentRoute then
+                descentIndex+=1
+                moveTarget=descentRoute[descentIndex]
+                lastAdvance=os.clock()
+                if descentIndex%6==0 then
+                    print("AUTO DRINK DESCIDA: trecho",descentIndex,"/",#descentRoute)
+                end
+            else
+                arrived=true
+                break
+            end
+        elseif not descentRoute and d < lastBest - 0.5 then
             lastBest = d
             lastAdvance = os.clock()
         end
-        if os.clock() - lastAdvance > CONFIG.StuckTimeout then
+        if not descentRoute and os.clock() - lastAdvance > CONFIG.StuckTimeout then
             warn("Auto Drink: sem progresso no caminho")
+            break
+        elseif descentRoute and os.clock()-lastAdvance>CONFIG.StuckTimeout then
+            warn("AUTO DRINK DESCIDA: nao avancou, interrompendo")
             break
         end
         if os.clock() - lastLog > 5 then
@@ -3123,7 +3514,7 @@ local function drinkOnce()
 
         -- Atualiza SOMENTE para outra margem seca bem mais proxima.
         -- Nao muda o destino para voxels de agua, evitando o loop perto do barranco.
-        if d <= 65 and os.clock() - lastWaterScan >= 8 then
+        if not descentRoute and d <= 65 and os.clock() - lastWaterScan >= 8 then
             lastWaterScan=os.clock()
             local water=findLocalWater(root.Position)
             local newBank=water and findAccessibleBank(water,root.Position) or nil
@@ -3209,7 +3600,7 @@ local function drinkOnce()
     end
 end
 
--- === AUTO QUEST DE BEBER EM LOCAL ESPECIFICO V8.9.28 ===
+-- === AUTO QUEST DE BEBER EM LOCAL ESPECIFICO V8.9.29 ===
 -- Usa pontos que o usuario testou fazendo a missao chegar a DONE.
 -- Nao confunde uma fonte qualquer com Alder Creek / Beaver Ponds.
 local namedDrinkRetryAt = {}
@@ -3373,7 +3764,7 @@ local function doNamedDrinkQuest(quest)
     return false
 end
 
--- === AUTO QUEST V8.9.28: LOCAIS, REST E TERRITORIO ===
+-- === AUTO QUEST V8.9.29: LOCAIS, REST E TERRITORIO ===
 local visitRetryAt, restRetryAt, territoryRetryAt={},{},{}
 
 local function namedVisitWaypoint(q)
@@ -3509,7 +3900,7 @@ local function visitNamedQuest(q)
     end
 end
 
--- V8.9.28: o log "R enviado" nunca foi prova de que o FERAL recebeu a tecla.
+-- V8.9.29: o log "R enviado" nunca foi prova de que o FERAL recebeu a tecla.
 -- Inicia por VIM, confirma o progresso real da quest e so entao trava as
 -- automacoes ate confirmar a saida do descanso. Sem progresso: cooldown.
 local function doRestQuest(q)
@@ -3961,7 +4352,7 @@ local function autoTravelQuest(requestedQuest)
     end
 end
 
-print("=== THE GOAT FERAL V8.9.28 AUTO QUEST | SESSAO " .. sessionID .. " ===")
+print("=== THE GOAT FERAL V8.9.29 AUTO QUEST | SESSAO " .. sessionID .. " ===")
 print("Fome:", tostring(getHunger()))
 print("Ativa <=", CONFIG.HungerStart, "| Para >=", CONFIG.HungerStop)
 print("Raio de caca:", CONFIG.HuntRadius, "| Raio de carcaça:", CONFIG.CarcassRadius)
@@ -3971,7 +4362,7 @@ print("Thirst/Hydration:", tostring(getThirst()))
 print("Auto Drink: start", CONFIG.DrinkStart, "stop", CONFIG.DrinkStop, "raio de busca Terrain", CONFIG.WaterSearchRadius, "scan local", CONFIG.WaterLocalRadius, "speed", CONFIG.WaterMoveSpeed)
 print("AUTO QUEST: monitorando QUICK e DAILY | quest comida: Hunger <= " .. CONFIG.QuestEatStart)
 print("PAINEL: Auto Drink", CONFIG.AutoDrink, "Auto Food", CONFIG.AutoFood, "Auto Grass", CONFIG.AutoGrass, "Auto Quest", CONFIG.AutoQuest)
-print("FEED V8.9.28: WolfActions / Feed / eat-drink (teste com janela minimizada pendente)")
+print("FEED V8.9.29: WolfActions / Feed / eat-drink (teste com janela minimizada pendente)")
 print("AUTO QUEST DISTANCIA:", CONFIG.QuestTravelEnabled and "ON" or "OFF",
     "| speed:", CONFIG.QuestTravelSpeed, "| trecho:", CONFIG.QuestTravelLegStuds)
 print("AUTO QUEST AGUA: Alder Creek confirmado", tostring(CONFIG.AlderCreekDrinkPos))
@@ -3991,9 +4382,9 @@ print("TRAVESSIA AGUA:",CONFIG.WaterAllowCrossing and "LIBERADA" or "COM DESVIOS
     "| nado",CONFIG.WaterSwimSpeed,"studs/s | resgate apos",
     CONFIG.WaterRescueAfterStuckSeconds,"s SEM PROGRESSO")
 print("GET AMBER: caca normal, 1 NPC por vez | alcance", CONFIG.AttackDistance, "studs | intervalo", CONFIG.AttackInterval, "s")
-print("AUTO MOVE SEGURO V8.9.28: corrida ate", CONFIG.SafeMaxSpeed, "| desvio ate", CONFIG.NavCornerSpeed,
+print("AUTO MOVE SEGURO V8.9.29: corrida ate", CONFIG.SafeMaxSpeed, "| desvio ate", CONFIG.NavCornerSpeed,
     "| anti-queda e anti-trava | travessia da agua mantida")
-print("LOG NAV: print(_G.TGFeralV8928.getNavLog())")
+print("LOG NAV: print(_G.TGFeralV8929.getNavLog())")
 print("AUTO QUEST CACA: Catch a mouse e Hunt a herbivore incluidos com selecao sem bloqueio")
 print("MAPA: aliases MapSpots carregados; coordenadas capturadas sempre tem prioridade")
 print("AUTO QUEST LOCAL: Golden Plains", tostring(CONFIG.GoldenPlainsVisitPos))
@@ -4001,16 +4392,19 @@ print("AUTO QUEST LOCAL: Rattlebone Mesa", tostring(CONFIG.RattleboneMesaVisitPo
 print("AUTO QUEST LOCAL: Go to Golden Waterhole [DONE confirmado]", tostring(CONFIG.GoldenWaterholeVisitPos))
 print("AUTO QUEST LOCAL: Explore Granite Basin [DONE confirmado]", tostring(CONFIG.GraniteBasinVisitPos))
 print("AUTO DRINK MARGEM: buscando margem seca acessivel | desnivel max proximo:",CONFIG.WaterBankMaxNearbyDrop)
+print("AUTO DRINK DESCIDA: busca autonoma",CONFIG.WaterDescentEnabled and "ON" or "OFF",
+    "| raio",CONFIG.WaterDescentSearchRadius,"| sem saltar e sem alterar protecao de queda")
+print("STATUS DESCIDA: print(_G.TGFeralV8929.getDescentStatus().last)")
 print("AUTO QUEST AGUA: Golden Waterhole", tostring(CONFIG.GoldenWaterholeDrinkPos))
 print("SEGURANCA AGUA:",CONFIG.WaterSafetyEnabled)
 print("AUTO QUEST LOCAL: Elk Crossing confirmado", tostring(CONFIG.ElkCrossingVisitPos))
 print("AUTO QUEST AGUA: Drink at Elk Crossing (aguarda DONE)", tostring(CONFIG.ElkCrossingDrinkPos))
 print("AUTO QUEST: Rest for 90s (R) e Claim a territory habilitados")
-print("AUTO QUEST REST V8.9.28: tenta R via VIM, depois executor; exige progresso real na GUI")
+print("AUTO QUEST REST V8.9.29: tenta R via VIM, depois executor; exige progresso real na GUI")
 print("AUTO QUEST REST: se R nao for reconhecido, faz pausa e segue outras quests; nao entra em bloqueio falso")
-print("REST STATUS: print(_G.TGFeralV8928.getRestStatus())")
+print("REST STATUS: print(_G.TGFeralV8929.getRestStatus())")
 print("RESURREICAO: sem clique automatico | aguarda respawn natural do FERAL")
-print("RESPAWN NATURAL STATUS: print(_G.TGFeralV8928.getRespawnStatus())")
+print("RESPAWN NATURAL STATUS: print(_G.TGFeralV8929.getRespawnStatus())")
 print("STATUS: ATIVO | Painel Drink / Food / Grass / Quest / Get Amber | Speed", CONFIG.Speed)
 print("GET AMBER: " .. (CONFIG.GetAmber and "ON" or "OFF") ..
     " | independente de Auto Quest; exige HP alto, Food e Drink ON")
@@ -4025,7 +4419,7 @@ local feeding = false
 local drinking = false
 local grazing = false
 
--- === AUTO RESPAWN V8.9.28 ===
+-- === AUTO RESPAWN V8.9.29 ===
 -- No Roblox do FERAL o botao verde RESPAWN eh gratuito.
 -- NUNCA clica REVIVE, CHANGE ANIMAL, 2x GROWTH ou qualquer compra.
 -- O nome da GUI nao foi identificado, portanto o alvo eh procurado pelo texto
@@ -4078,7 +4472,7 @@ local function locateRespawnUI()
     return best,deathTitle
 end
 
-_G.TGFeralV8928.getRespawnStatus=function()
+_G.TGFeralV8929.getRespawnStatus=function()
     local char,hum=actor()
     return {
         enabled=CONFIG.AutoRespawn,dead=respawnState.dead,
@@ -4424,26 +4818,28 @@ task.spawn(function()
     end
     runtimeStatus.recovering = false
     stop()
-    print("THE GOAT FERAL V8.9.28 SESSAO " .. sessionID .. " DESLIGADA")
+    print("THE GOAT FERAL V8.9.29 SESSAO " .. sessionID .. " DESLIGADA")
 end)
 
 -- Para desligar no console:
--- if _G.TGFeralV8928 then _G.TGFeralV8928.stop() end  -- encerrar tudo (nao ha X)
--- Status: print(_G.TGFeralV8928 and _G.TGFeralV8928.isActive())
--- Get Amber livre: _G.TGFeralV8928.config.GetAmber = true (prefira o botao do painel)
+-- if _G.TGFeralV8929 then _G.TGFeralV8929.stop() end  -- encerrar tudo (nao ha X)
+-- Status: print(_G.TGFeralV8929 and _G.TGFeralV8929.isActive())
+-- Get Amber livre: _G.TGFeralV8929.config.GetAmber = true (prefira o botao do painel)
 -- Grass: ligue AUTO EAT GRASS no painel como herbivoro e fique proximo a grama.
--- Debug: print(_G.TGFeralV8928.getGrassDebug().status)
--- Scan manual: print(_G.TGFeralV8928.scanGrass().target)
+-- Debug: print(_G.TGFeralV8929.getGrassDebug().status)
+-- Scan manual: print(_G.TGFeralV8929.scanGrass().target)
 -- Se nenhuma grama for encontrada, envie logs/nomes dos patches para refinar scanner.
+-- Descida: print(_G.TGFeralV8929.getDescentStatus().last)
+-- Descida OFF: _G.TGFeralV8929.config.WaterDescentEnabled=false
 -- O Get Amber nao exige AutoQuest ON, nem quests DONE, nem leitura de QUICK/DAILY.
 -- Com ambos ON, Get Amber tem prioridade; desligue Get Amber para retomar as quests.
--- Abates: print(_G.TGFeralV8928.getAmberKills())
+-- Abates: print(_G.TGFeralV8929.getAmberKills())
 -- Get Amber usa apenas AmberSpecies (Deer, Otter, Fox).
--- Missoes: for _, q in ipairs(_G.TGFeralV8928.getQuests()) do print(q.title, q.progress, q.category) end
+-- Missoes: for _, q in ipairs(_G.TGFeralV8929.getQuests()) do print(q.title, q.progress, q.category) end
 
--- Descanso: print(_G.TGFeralV8928.getRestStatus())
+-- Descanso: print(_G.TGFeralV8929.getRestStatus())
 -- Se o jogo nao expuser animacao/estado, confirme VISUALMENTE o lobo em pe
--- e somente depois: print(_G.TGFeralV8928.confirmStanding())
+-- e somente depois: print(_G.TGFeralV8929.confirmStanding())
 
 
 end
