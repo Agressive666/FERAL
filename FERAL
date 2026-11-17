@@ -1,6 +1,7 @@
 -- THE GOAT FERAL V8.9.33 - AUTO QUEST | CORRECAO CATEGORIA GREAT FALLS
 -- CORRECAO: nomes de missoes classificados por palavras completas, evitando Great -> eat.
--- Preserva Auto Drink, descida automatica, Auto Food, Auto Quest e painel da V8.9.31.
+-- Preserva Auto Drink, descida automatica, Auto Food, Auto Quest e painel da V8.9.32.
+-- AUTO GRASS ON e deteccao de herbivoros reforcada (Hippo / Elephant / Rhino / etc.).
 -- BASE: V8.9.23, com as funcoes e melhorias preservadas da V8.9.21.
 -- REVISAO: descida autonoma por terreno ate margem de agua, sem saltos.
 -- Mantem painel ET neon, coordenadas, nado e protecoes de descanso.
@@ -15,15 +16,6 @@ local RunService = game:GetService("RunService")
 local PathfindingService = game:GetService("PathfindingService")
 local Terrain = workspace.Terrain
 local player = Players.LocalPlayer
--- Desativa a janela Aura separada antes de inicializar a versao unificada.
-local oldAuraEnv=(type(getgenv)=="function" and getgenv()) or _G
-if type(oldAuraEnv.THE_GOAT_FERAL_AURA_V2_STOP)=="function" then
-    pcall(oldAuraEnv.THE_GOAT_FERAL_AURA_V2_STOP)
-end
-if type(_G.THE_GOAT_NPC_AURA_STOP)=="function" then
-    pcall(_G.THE_GOAT_NPC_AURA_STOP)
-    _G.THE_GOAT_NPC_AURA_STOP=nil
-end
 local UserInputService = game:GetService("UserInputService")
 local windowFocused = true
 local feedFocusConnections = {}
@@ -56,14 +48,9 @@ local CONFIG = {
     HungerStop = 95,        -- Para quando a fome recuperar
     AutoQuest = true,
     AutoFood = true,      -- Cacar e comer para sobrevivencia; tambem autoriza quests de caca
-    AutoAttack = false, -- Aura V2: OFF inicial por seguranca; ative no painel ou V
-    AuraDetectRange = 60,
-    AuraMinRange = 10,
-    AuraMaxRange = 100,
-    AuraAttackInterval = 0.8,
-    AuraBiteHitDelay = 0.12,
-    -- AUTO GRASS: habilitado manualmente no painel para herbivoros.
-    AutoGrass = false,
+    -- AUTO GRASS: ON por padrao; so atua em especies reconhecidas como herbivoras.
+    -- O botao no painel continua permitindo desligar manualmente.
+    AutoGrass = true,
     GrassStart = 80,            -- comeca a pastar
     GrassStop = 95,             -- para quando alimentado
     FeedRemoteFirst = true,     -- V8.9.33: WolfActions Feed (funciona sem simular E)
@@ -83,7 +70,7 @@ local CONFIG = {
     GrassExploreScanInterval = 3.0,
     GrassExploreSpeed = 32,
     GrassExploreBlockedPause = 10,
-    AutoRespawn = true, -- ao morrer, solicita somente o RESPAWN gratuito se visivel
+    AutoRespawn = false, -- jogo realiza renascimento natural; monitor apenas pausa e retoma
     -- GET AMBER: independente de Auto Quest e de quests pendentes; desligado por padrao.
     GetAmber = false,
     AmberHuntRadius = 850,
@@ -260,11 +247,10 @@ local runtimeStatus = {
 local activity = {
     AutoDrink = "EM ESPERA",
     AutoFood = "EM ESPERA",
-    AutoGrass = "DESATIVADO",
+    AutoGrass = CONFIG.AutoGrass and "EM ESPERA" or "DESATIVADO",
     AutoQuest = "EM ESPERA",
     GetAmber = "DESATIVADO",
-    AutoRespawn = "AGUARDANDO MORTE",
-    AutoAttack = "DESATIVADO"
+    AutoRespawn = "AGUARDANDO MORTE"
 }
 local function setActivity(key, value)
     if activity[key] ~= nil then activity[key] = value end
@@ -295,39 +281,66 @@ local function getHunger()
     return getPercent("Hunger")
 end
 
--- Detecta a dieta quando o jogo expoe atributos; se nao expoe,
--- so tenta pastar quando o usuario habilitar Auto Grass e houver prompt EAT/GRAZE.
+-- === RECONHECIMENTO DE HERBIVOROS V8.9.33 ===
+-- Resolve PRIMEIRO a especie do personagem atual para nao confundir Hippo com
+-- outro atributo legado do jogador. Hippo, Hippopotamus, Elephant etc. sao
+-- classificados mesmo que o jogo use nomes com genero/sufixos (Hippo_Male).
+-- Se a especie nao estiver na lista, usa Diet/AnimalDiet/FoodType.
+local HERBIVORE_NAMES = {
+    "hippopotamus", "hippo", "elephant", "rhino", "rhinoceros", "deer", "elk",
+    "bison", "buffalo", "porcupine", "goat", "moose", "antelope", "gazelle",
+    "giraffe", "zebra", "horse", "rabbit", "hare", "tortoise",
+    "capybara", "cow", "sheep", "donkey", "tapir", "camel", "llama",
+    "alpaca", "ox", "yak"
+}
+local CARNIVORE_NAMES = {
+    "wolf", "tiger", "otter", "fox", "bear", "cougar", "python", "cobra",
+    "alligator", "crocodile", "eagle", "lion", "leopard", "cheetah", "hyena",
+    "panther", "lynx", "jaguar", "shark"
+}
+local function speciesDiet(value)
+    if type(value) ~= "string" or value == "" then return nil end
+    local name = value:lower():gsub("[^%a]", "")
+    for _, species in ipairs(HERBIVORE_NAMES) do
+        if name:sub(1, #species) == species then return true end
+    end
+    for _, species in ipairs(CARNIVORE_NAMES) do
+        if name:sub(1, #species) == species then return false end
+    end
+    return nil
+end
+
 local function herbivoreState()
     local char = player.Character
     if not char then return nil, "SEM PERSONAGEM" end
-    local values = {}
+    -- Preferencia para Species do proprio animal (e nao nome da conta).
     for _, inst in ipairs({char, player}) do
-        for _, key in ipairs({"Diet", "AnimalDiet", "FoodType", "Species", "SpeciesName", "Animal", "AnimalName", "AnimalType"}) do
+        for _, key in ipairs({"Species", "SpeciesName", "AnimalName", "Animal", "AnimalType"}) do
             local v = inst:GetAttribute(key)
-            if type(v) == "string" and v ~= "" then
-                if key == "Diet" or key == "AnimalDiet" or key == "FoodType" then
-                    local d = v:lower()
-                    if d:find("herbi", 1, true) then return true, v end
-                    if d:find("carni", 1, true) then return false, v end
-                end
-                table.insert(values, v)
+            local herb = speciesDiet(v)
+            if herb ~= nil then return herb, tostring(v) end
+            -- Alguns avatares expoem Species como StringValue em vez de atributo.
+            local child = inst:FindFirstChild(key)
+            if child and child:IsA("StringValue") then
+                herb = speciesDiet(child.Value)
+                if herb ~= nil then return herb, child.Value end
             end
         end
     end
-    -- Nome do avatar e fallback, nao deve superar o atributo real Species.
-    table.insert(values, char.Name)
-    local herbi = {"deer", "elk", "bison", "rhino", "porcupine", "elephant", "hippo", "hippopotamus", "goat", "moose", "antelope", "gazelle", "giraffe", "zebra", "horse", "rabbit", "hare"}
-    local others = {"wolf", "tiger", "otter", "fox", "bear", "cougar", "python", "cobra", "alligator", "crocodile", "eagle", "lion", "leopard"}
-    for _, value in ipairs(values) do
-        local normalized = tostring(value):lower():gsub("[^%a]", "")
-        for _, name in ipairs(herbi) do
-            if normalized:find(name, 1, true) then return true, value end
-        end
-        for _, name in ipairs(others) do
-            if normalized:find(name, 1, true) then return false, value end
+    local fromName = speciesDiet(char.Name)
+    if fromName ~= nil then return fromName, char.Name end
+    for _, inst in ipairs({char, player}) do
+        for _, key in ipairs({"Diet", "AnimalDiet", "FoodType"}) do
+            local v = inst:GetAttribute(key)
+            if type(v) == "string" and v ~= "" then
+                local d = v:lower()
+                if d:find("herbi", 1, true) or d:find("grazer", 1, true)
+                    or d:find("plant", 1, true) then return true, v end
+                if d:find("carni", 1, true) then return false, v end
+            end
         end
     end
-    return nil, "DIETA NAO IDENTIFICADA"
+    return nil, "ESPECIE/DIETA NAO IDENTIFICADA"
 end
 
 local function getThirst()
@@ -711,7 +724,7 @@ local function amberReady(requireFullHealth)
     if not CONFIG.GetAmber then return false, "DESATIVADO" end
     if CONFIG.AutoGrass then
         local herb = herbivoreState()
-        if herb ~= false then return false, "PAUSADO: AUTO GRASS" end
+        if herb == true then return false, "PAUSADO: AUTO GRASS" end
     end
     if not CONFIG.AutoFood or not CONFIG.AutoDrink then
         return false, "REQUER FOOD + DRINK"
@@ -1051,117 +1064,6 @@ local function stop()
     end
 end
 
--- === FERAL AURA V2 | INTEGRADA AO THE GOAT (SEM SEGUNDO PAINEL) ===
--- Motor fiel ao script original: WolfActions Bite -> BiteHit, apenas FeralNPCs.
--- Nao move personagem, nao mira jogadores, nao transforma tentativas em abates.
-local auraRuntime = {
-    attempts=0, lastTarget=nil, lastTargetText="Alvo: desativado",
-    lastError=nil, lastAttackAt=0, lastMethod="Bite/BiteHit"
-}
-local auraNPCFolder = workspace:FindFirstChild("FeralNPCs")
-local auraRemote = game:GetService("ReplicatedStorage"):FindFirstChild("WolfActions")
-
-local function auraGetRoot()
-    local char,hum,root=actor()
-    if not char or not hum or hum.Health<=0 then return nil end
-    return root
-end
-local function auraAliveNPC(npc)
-    if not (npc and npc:IsA("Model") and npc.Parent) then return false end
-    if Players:GetPlayerFromCharacter(npc) then return false end
-    if npc:GetAttribute("FeralDead")==true or npc:GetAttribute("IsDead")==true
-        or npc:GetAttribute("Dead")==true or npc:GetAttribute("Alive")==false then return false end
-    local hum=npc:FindFirstChildOfClass("Humanoid")
-    if hum and hum.Health<=0 then return false end
-    return npc:FindFirstChildWhichIsA("BasePart",true)~=nil
-end
-local function auraNearestNPC(root)
-    local best,bestDist=nil,CONFIG.AuraDetectRange
-    if not auraNPCFolder or not auraNPCFolder.Parent then
-        auraNPCFolder=workspace:FindFirstChild("FeralNPCs")
-    end
-    if not auraNPCFolder then return nil,bestDist end
-    local function scan(folder)
-        for _,obj in ipairs(folder:GetChildren()) do
-            if obj:IsA("Folder") then
-                scan(obj)
-            elseif obj:IsA("Model") and auraAliveNPC(obj) then
-                local dist=(obj:GetPivot().Position-root.Position).Magnitude
-                if dist<bestDist then best,bestDist=obj,dist end
-            end
-        end
-    end
-    scan(auraNPCFolder)
-    return best,bestDist
-end
-local function auraSetEnabled(state)
-    CONFIG.AutoAttack=state==true
-    auraRuntime.lastTarget=nil
-    if CONFIG.AutoAttack then
-        auraRuntime.lastTargetText="Alvo: procurando NPC..."
-        setActivity("AutoAttack","PROCURANDO NPC")
-    else
-        auraRuntime.lastTargetText="Alvo: desativado"
-        setActivity("AutoAttack","DESATIVADO")
-    end
-    print("THE GOAT AURA V2:",CONFIG.AutoAttack and "ON" or "OFF",
-        "| alcance",CONFIG.AuraDetectRange,"studs")
-end
--- Loop independente da fila do AutoQuest: apenas ataques de proximidade.
-task.spawn(function()
-    while active do
-        local ok,err=pcall(function()
-            if not CONFIG.AutoAttack then return end
-            local root=auraGetRoot()
-            if not root then
-                auraRuntime.lastTarget=nil
-                auraRuntime.lastTargetText="Alvo: aguardando personagem"
-                setActivity("AutoAttack","AGUARDANDO PERSONAGEM")
-                return
-            end
-            if not auraRemote or not auraRemote.Parent then
-                auraRemote=game:GetService("ReplicatedStorage"):FindFirstChild("WolfActions")
-            end
-            if not auraRemote or not auraRemote:IsA("RemoteEvent") then
-                auraRuntime.lastTargetText="Alvo: WolfActions indisponivel"
-                setActivity("AutoAttack","SEM REMOTE")
-                return
-            end
-            local npc,dist=auraNearestNPC(root)
-            if not npc then
-                auraRuntime.lastTarget=nil
-                auraRuntime.lastTargetText="Alvo: nenhum NPC no alcance"
-                setActivity("AutoAttack","SEM NPC")
-                return
-            end
-            auraRuntime.lastTargetText=string.format("Alvo: %s (%.0f studs)",npc.Name,dist)
-            setActivity("AutoAttack","ATACANDO NPC")
-            if npc~=auraRuntime.lastTarget then
-                auraRuntime.lastTarget=npc
-                print("[THE GOAT AURA] Novo alvo NPC:",npc.Name)
-            end
-            local timestamp=workspace:GetServerTimeNow()
-            auraRemote:FireServer("Bite",timestamp)
-            task.wait(CONFIG.AuraBiteHitDelay)
-            if not active or not CONFIG.AutoAttack or not npc.Parent
-                or not auraNPCFolder or not npc:IsDescendantOf(auraNPCFolder)
-                or not auraAliveNPC(npc) then return end
-            local latestRoot=auraGetRoot()
-            if not latestRoot then return end
-            if (npc:GetPivot().Position-latestRoot.Position).Magnitude>CONFIG.AuraDetectRange then return end
-            auraRemote:FireServer("BiteHit",{m=npc,t=timestamp})
-            auraRuntime.attempts+=1
-            auraRuntime.lastAttackAt=os.clock()
-        end)
-        if not ok then
-            auraRuntime.lastError=tostring(err)
-            setActivity("AutoAttack","ERRO TEMPORARIO")
-            warn("THE GOAT AURA V2: tentativa falhou:",err)
-        end
-        task.wait(CONFIG.AuraAttackInterval)
-    end
-end)
-
 _G.TGFeralV8933 = {
     stop = stop,
     config = CONFIG,
@@ -1187,18 +1089,6 @@ _G.TGFeralV8933 = {
     end,
     getAmberKills = function() return amberKills end,
     getTotalKills = function() return totalConfirmedKills end,
-    getAuraStatus = function()
-        return {enabled=CONFIG.AutoAttack,range=CONFIG.AuraDetectRange,
-            attempts=auraRuntime.attempts,target=auraRuntime.lastTargetText,
-            lastError=auraRuntime.lastError}
-    end,
-    setAuraEnabled = auraSetEnabled,
-    setAuraRange = function(value)
-        if type(value)~="number" then return CONFIG.AuraDetectRange end
-        CONFIG.AuraDetectRange=math.clamp(math.floor(value/10+0.5)*10,
-            CONFIG.AuraMinRange,CONFIG.AuraMaxRange)
-        return CONFIG.AuraDetectRange
-    end,
     getKillStats = function() return {farm = amberKills, total = totalConfirmedKills} end,
     getNavLog = function() return table.concat(navLog, "\n") end,
     getDescentStatus = function()
@@ -1221,10 +1111,10 @@ _G.TGFeralV8933 = {
             movementActive=movementConnection~=nil}
     end,
     getControls = function()
-        return {AutoDrink = CONFIG.AutoDrink, AutoFood = CONFIG.AutoFood, AutoGrass = CONFIG.AutoGrass, AutoQuest = CONFIG.AutoQuest, GetAmber = CONFIG.GetAmber, AutoRespawn = CONFIG.AutoRespawn, AutoAttack = CONFIG.AutoAttack}
+        return {AutoDrink = CONFIG.AutoDrink, AutoFood = CONFIG.AutoFood, AutoGrass = CONFIG.AutoGrass, AutoQuest = CONFIG.AutoQuest, GetAmber = CONFIG.GetAmber, AutoRespawn = CONFIG.AutoRespawn}
     end,
     getActivity = function()
-        return {AutoDrink = activity.AutoDrink, AutoFood = activity.AutoFood, AutoGrass = activity.AutoGrass, AutoQuest = activity.AutoQuest, GetAmber = activity.GetAmber, AutoRespawn = activity.AutoRespawn, AutoAttack = activity.AutoAttack}
+        return {AutoDrink = activity.AutoDrink, AutoFood = activity.AutoFood, AutoGrass = activity.AutoGrass, AutoQuest = activity.AutoQuest, GetAmber = activity.GetAmber, AutoRespawn = activity.AutoRespawn}
     end
 }
 
@@ -1302,7 +1192,7 @@ do
             table.insert(connections,connection)
             return connection
         end
-        local width,fullHeight,smallHeight=352,706,84
+        local width,fullHeight,smallHeight=352,582,84
         local mainPos=UDim2.new(1,-374,0,84)
         local shadow=uiNew("Frame", {
             Name="Shadow", Position=mainPos + UDim2.fromOffset(4,6),
@@ -1377,8 +1267,7 @@ do
             {key="AutoFood",name="AUTO FOOD",desc="Cacar e se alimentar",symbol="🍖"},
             {key="AutoGrass",name="AUTO EAT GRASS",desc="Herbivoros: buscar grama e pastar",symbol="🌿"},
             {key="AutoQuest",name="AUTO QUEST",desc="Missoes",symbol="🗺️"},
-            {key="GetAmber",name="GET AMBER",desc="Farm independente das missoes",symbol="💰"},
-            {key="AutoAttack",name="AUTO ATTACK (AURA)",desc="Bite / BiteHit em NPCs",symbol="⚔️"}
+            {key="GetAmber",name="GET AMBER",desc="Farm independente das missoes",symbol="💰"}
         }
         local controlsUI={}
         for i,item in ipairs(controls) do
@@ -1428,50 +1317,18 @@ do
                 rowStroke.Transparency=.46
             end)
         end
-        -- Controle da Aura na MESMA janela, logo abaixo do sexto botao.
-        textLabel(body,"ALCANCE DA AURA",10,C.pale,offset(17,473),offset(120,24),true)
-        local auraMinus=uiNew("TextButton",{
-            Name="AuraMinus",Text="−",Position=offset(143,470),Size=offset(31,28),
-            Font=Enum.Font.GothamBold,TextSize=18,TextColor3=C.white,
-            BackgroundColor3=C.darkNeon,BorderSizePixel=0
-        },body)
-        local auraRangeLabel=textLabel(body,"60 studs",11,C.white,offset(179,471),offset(78,27),true)
-        auraRangeLabel.TextXAlignment=Enum.TextXAlignment.Center
-        local auraPlus=uiNew("TextButton",{
-            Name="AuraPlus",Text="+",Position=offset(263,470),Size=offset(31,28),
-            Font=Enum.Font.GothamBold,TextSize=18,TextColor3=C.white,
-            BackgroundColor3=C.darkNeon,BorderSizePixel=0
-        },body)
-        corner(auraMinus,7)
-        corner(auraPlus,7)
-        bind(auraMinus.MouseButton1Click,function()
-            CONFIG.AuraDetectRange=math.max(CONFIG.AuraMinRange,CONFIG.AuraDetectRange-10)
-            print("THE GOAT AURA V2: alcance",CONFIG.AuraDetectRange)
-        end)
-        bind(auraPlus.MouseButton1Click,function()
-            CONFIG.AuraDetectRange=math.min(CONFIG.AuraMaxRange,CONFIG.AuraDetectRange+10)
-            print("THE GOAT AURA V2: alcance",CONFIG.AuraDetectRange)
-        end)
-        local auraTargetLine=textLabel(body,"Alvo: desativado",10,C.pale,offset(17,505),offset(317,18),false)
-        -- Tecla V da Aura original: nao interfere no movimento automatico.
-        bind(Input.InputBegan,function(input,processed)
-            if processed or Input:GetFocusedTextBox() then return end
-            if input.KeyCode==Enum.KeyCode.V then
-                auraSetEnabled(not CONFIG.AutoAttack)
-            end
-        end)
         -- Status bar, live Hunger and Thirst percentages from character attributes.
         local footerRule=uiNew("Frame",{
-            Size=UDim2.new(1,-32,0,1),Position=offset(16,525),
+            Size=UDim2.new(1,-32,0,1),Position=offset(16,409),
             BackgroundColor3=Color3.fromRGB(35,108,48),BorderSizePixel=0
         },body)
-        local foodIcon=textLabel(body,"◆",15,C.neon,offset(17,537),offset(19,23),true)
-        local foodStatus=textLabel(body,"FOOD --%",11,C.white,offset(36,538),offset(94,22),true)
-        local waterIcon=textLabel(body,"◉",15,C.neon,offset(137,537),offset(20,23),true)
-        local waterStatus=textLabel(body,"WATER --%",11,C.white,offset(157,538),offset(109,22),true)
-        local online=textLabel(body,"● ATIVO",11,C.lime,offset(270,538),offset(78,22),true)
-        local amberCountLabel=textLabel(body,"GET AMBER  |  FARM 0  |  TOTAL 0",10,C.lime,offset(17,566),offset(317,19),true)
-        textLabel(body,"Arraste pelo topo  |  - minimiza",9,C.muted,offset(17,593),offset(317,14),false)
+        local foodIcon=textLabel(body,"◆",15,C.neon,offset(17,421),offset(19,23),true)
+        local foodStatus=textLabel(body,"FOOD --%",11,C.white,offset(36,422),offset(94,22),true)
+        local waterIcon=textLabel(body,"◉",15,C.neon,offset(137,421),offset(20,23),true)
+        local waterStatus=textLabel(body,"WATER --%",11,C.white,offset(157,422),offset(109,22),true)
+        local online=textLabel(body,"● ATIVO",11,C.lime,offset(270,422),offset(78,22),true)
+        local amberCountLabel=textLabel(body,"GET AMBER  |  FARM 0  |  TOTAL 0",10,C.lime,offset(17,450),offset(317,19),true)
+        textLabel(body,"Arraste pelo topo  |  - minimiza",9,C.muted,offset(17,477),offset(317,14),false)
 
         local function animate(inst,props)
             Tween:Create(inst,TweenInfo.new(.15,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),props):Play()
@@ -1494,8 +1351,6 @@ do
             foodStatus.Text="FOOD "..(hunger and tostring(math.floor(hunger)) or "--").."%"
             waterStatus.Text="WATER "..(thirst and tostring(math.floor(thirst)) or "--").."%"
             online.Text=runtimeStatus.recovering and "● RECUPERANDO" or "● ATIVO"
-            auraRangeLabel.Text=tostring(CONFIG.AuraDetectRange).." studs"
-            auraTargetLine.Text=auraRuntime.lastTargetText.."  |  Tentativas: "..tostring(auraRuntime.attempts)
             local _, currentHum = actor()
             local hp = currentHum and currentHum.MaxHealth > 0
                 and math.floor(currentHum.Health / currentHum.MaxHealth * 100) or 0
@@ -1507,10 +1362,8 @@ do
                 if not active then return end
                 local now=not CONFIG[item.key]
                 CONFIG[item.key]=now
-                if item.key=="AutoAttack" then auraSetEnabled(now) end
                 -- Alternar Auto Quest nao interrompe um farm de Amber ativo.
-                if item.key ~= "AutoRespawn" and item.key ~= "AutoAttack"
-                    and not (item.key == "AutoQuest" and CONFIG.GetAmber) then
+                if item.key ~= "AutoRespawn" and not (item.key == "AutoQuest" and CONFIG.GetAmber) then
                     controlsEpoch += 1
                     stopMovement()
                     setActivity("AutoDrink","EM ESPERA")
@@ -2422,10 +2275,10 @@ local function autoGrazeOnce()
     if not char or hum.Health <= 0 then return false end
     local herbivore, species = herbivoreState()
     grassDebug.species = species
-    if herbivore == false then
-        setActivity("AutoGrass", "SOMENTE HERBIVOROS")
+    if herbivore ~= true then
+        setActivity("AutoGrass", herbivore == false and "SOMENTE HERBIVOROS" or "ESPECIE DESCONHECIDA")
         if os.clock()-lastGrassNotice > 25 then
-            warn("AUTO GRASS: especie carnivora/nao herbivora:",species)
+            warn("AUTO GRASS: especie nao reconhecida como herbivora:",species)
             lastGrassNotice=os.clock()
         end
         return false
@@ -2583,6 +2436,16 @@ _G.TGFeralV8933.getGrassDebug = function()
     status.exploreDestination=grassExplore.destination
     status.exploreLastOutcome=grassExplore.lastOutcome
     return status
+end
+-- Teste: print(_G.TGFeralV8933.getHerbivoreStatus().species)
+_G.TGFeralV8933.getHerbivoreStatus = function()
+    local yes, species = herbivoreState()
+    return {
+        herbivore = yes, species = species, autoGrass = CONFIG.AutoGrass,
+        hunger = getHunger(), start = CONFIG.GrassStart, stop = CONFIG.GrassStop,
+        prompt = grassPromptState(), activity = activity.AutoGrass,
+        scan = grassDebug.status
+    }
 end
 _G.TGFeralV8933.scanGrass = function()
     local obj, pos, distance = scanNearbyGrass()
@@ -4566,7 +4429,7 @@ local function travelNeedsToStop(char, hum)
     local drinkQuest = CONFIG.AutoDrink and questPending("AGUA", questGenericDrink) or nil
     local hungerLimit = foodQuest and math.max(CONFIG.HungerStart, CONFIG.QuestEatStart) or CONFIG.HungerStart
     local thirstLimit = drinkQuest and math.max(CONFIG.DrinkStart, CONFIG.QuestDrinkStart) or CONFIG.DrinkStart
-    if CONFIG.AutoGrass and herbivoreState() ~= false and h and h <= CONFIG.GrassStart then return true, "grama" end
+    if CONFIG.AutoGrass and herbivoreState() == true and h and h <= CONFIG.GrassStart then return true, "grama" end
     if CONFIG.AutoFood and h and h <= hungerLimit then return true, "comida" end
     if CONFIG.AutoDrink and t and t <= thirstLimit then return true, "agua" end
     if hum.MaxHealth > 0 and hum.Health / hum.MaxHealth * 100 < CONFIG.MinHealthPercent then
@@ -4740,12 +4603,12 @@ print("AUTO QUEST: Rest for 90s (R) e Claim a territory habilitados")
 print("AUTO QUEST REST V8.9.33: tenta R via VIM, depois executor; exige progresso real na GUI")
 print("AUTO QUEST REST: se R nao for reconhecido, faz pausa e segue outras quests; nao entra em bloqueio falso")
 print("REST STATUS: print(_G.TGFeralV8933.getRestStatus())")
-print("AUTO RESPAWN: somente botao RESPAWN gratuito na morte confirmada")
-print("RESPAWN STATUS: print(_G.TGFeralV8933.getRespawnStatus())")
+print("RESURREICAO: sem clique automatico | aguarda respawn natural do FERAL")
+print("RESPAWN NATURAL STATUS: print(_G.TGFeralV8933.getRespawnStatus())")
 print("STATUS: ATIVO | Painel Drink / Food / Grass / Quest / Get Amber | Speed", CONFIG.Speed)
 print("GET AMBER: " .. (CONFIG.GetAmber and "ON" or "OFF") ..
     " | independente de Auto Quest; exige HP alto, Food e Drink ON")
-print("AUTO GRASS: OFF por padrao | herbivoros 🌿 | scanner local",CONFIG.GrassSearchRadius,
+print("AUTO GRASS: ON por padrao | herbivoros reconhecidos 🌿 | scanner local",CONFIG.GrassSearchRadius,
     "| EXPLORADOR",CONFIG.GrassExploreEnabled and "ON" or "OFF",
     "| busca por setores ate",CONFIG.GrassExploreMaxRadius,"studs")
 if CONFIG.AutoDrink and getThirst() == nil then
@@ -4756,15 +4619,14 @@ local feeding = false
 local drinking = false
 local grazing = false
 
--- === AUTO RESPAWN V8.9.33 (somente botao gratuito RESPAWN) ===
--- Preserva as rotinas e o painel. Nao usa RESPAWN como comando de servidor inventado.
--- Evita REVIVE, CHANGE ANIMAL e qualquer botao pago.
--- Tenta sinais de UI se executor os expuser; clique virtual somente em janela focada.
+-- === AUTO RESPAWN V8.9.33 ===
+-- No Roblox do FERAL o botao verde RESPAWN eh gratuito.
+-- NUNCA clica REVIVE, CHANGE ANIMAL, 2x GROWTH ou qualquer compra.
+-- O nome da GUI nao foi identificado, portanto o alvo eh procurado pelo texto
+-- EXATO "RESPAWN" e apenas se a morte estiver confirmada.
 local respawnState = {
     dead=false, since=0, lastClick=0, attempts=0,
-    deaths=0, successes=0, lastStatus="INICIANDO", lastButton="nenhum",
-    lastMethod="nenhum", lastError=nil, lastDeathVitals=nil,
-    observedDied=false, aliveVitals=nil
+    deaths=0, successes=0, lastStatus="INICIANDO", lastButton="nenhum"
 }
 
 local function respawnVisible(obj)
@@ -4790,15 +4652,15 @@ local function locateRespawnUI()
     if not pg then return nil,false end
     local deathTitle=false
     local best=nil
+    -- Descendants do PlayerGui sao apenas lidos; nao modificamos o UI do jogo.
     for _,obj in ipairs(pg:GetDescendants()) do
         if (obj:IsA("TextLabel") or obj:IsA("TextButton")) and respawnVisible(obj) then
-            local txt=normalizeRespawnText(obj.Text)
-            if txt=="YOU DIED" then deathTitle=true end
-            if txt=="RESPAWN" then
+            local text=normalizeRespawnText(obj.Text)
+            if text=="YOU DIED" then deathTitle=true end
+            if text=="RESPAWN" then
                 local at=obj
                 while at and at~=pg do
                     if at:IsA("GuiButton") and respawnVisible(at) then
-                        -- Um alvo unico, do jogo, com nome/texto exato.
                         best=at
                         break
                     end
@@ -4810,110 +4672,26 @@ local function locateRespawnUI()
     return best,deathTitle
 end
 
--- Descobre a morte mesmo quando a GUI 'YOU DIED' ainda nao carregou.
-local observedHumanoid, diedConnection = nil, nil
-local function watchDeath(hum)
-    -- Ao morrer, o jogo pode remover o Humanoid antes de abrir a tela de morte.
-    -- Nao apagar o sinal de morte ate aparecer um NOVO Humanoid.
-    if not hum or hum==observedHumanoid then return end
-    if diedConnection then pcall(function() diedConnection:Disconnect() end) end
-    observedHumanoid=hum
-    respawnState.observedDied=(hum~=nil and hum.Health<=0) or false
-    if hum then
-        diedConnection=hum.Died:Connect(function()
-            respawnState.observedDied=true
-        end)
-    end
-end
-
--- Registro das ultimas condicoes antes da morte: facilita diagnostico real.
-local function recordAlive(hum,root)
-    if not hum or hum.Health<=0 then return end
-    respawnState.aliveVitals={
-        hp=math.floor(hum.Health*10)/10,
-        maxHp=math.floor(hum.MaxHealth*10)/10,
-        hunger=getHunger(), thirst=getThirst(),
-        pos=root and tostring(root.Position) or "desconhecida",
-        time=os.clock()
-    }
-end
-
-local function requestRespawn(button,attempt)
-    if not (button and button:IsA("GuiButton") and respawnVisible(button)) then
-        return false,"BOTAO", "RESPAWN nao visivel"
-    end
-    -- Cada tentativa usa um metodo distinto para nao disparar duas vezes o mesmo respawn.
-    -- 'firesignal' e 'getconnections' sao opcionais, dependem do executor.
-    local mode=(attempt-1)%5
-    if mode==0 or mode==1 then
-        local method=mode==0 and "MouseButton1Click" or "Activated"
-        if type(firesignal)~="function" then
-            return false,"firesignal("..method..")","executor nao oferece firesignal"
-        end
-        local ok,err=pcall(function()
-            if mode==0 then firesignal(button.MouseButton1Click)
-            else firesignal(button.Activated) end
-        end)
-        return ok,"firesignal("..method..")",ok and nil or tostring(err)
-    elseif mode==2 or mode==3 then
-        local name=mode==2 and "MouseButton1Click" or "Activated"
-        if type(getconnections)~="function" then
-            return false,"getconnections("..name..")","executor nao oferece getconnections"
-        end
-        local called=0
-        local ok,err=pcall(function()
-            local signal=mode==2 and button.MouseButton1Click or button.Activated
-            for _,connection in ipairs(getconnections(signal) or {}) do
-                if connection.Enabled~=false and type(connection.Function)=="function" then
-                    -- Apenas callback do botao RESPAWN exato, nunca outros botoes.
-                    connection.Function()
-                    called+=1
-                end
-            end
-        end)
-        if ok and called==0 then return false,"getconnections("..name..")","sem callback acessivel" end
-        return ok,"getconnections("..name..")",ok and nil or tostring(err)
-    else
-        if not windowFocused then
-            return false,"CLICK VIRTUAL","janela sem foco (protegido)"
-        end
-        local ok,err=pcall(function()
-            -- Clique APENAS no centro do botao RESPAWN. Nao move cursor fisico.
-            local vim=game:GetService("VirtualInputManager")
-            local pos=button.AbsolutePosition+button.AbsoluteSize/2
-            local x,y=math.floor(pos.X),math.floor(pos.Y)
-            vim:SendMouseButtonEvent(x,y,0,true,game,0)
-            task.wait(.08)
-            vim:SendMouseButtonEvent(x,y,0,false,game,0)
-        end)
-        return ok,"CLICK VIRTUAL",ok and nil or tostring(err)
-    end
-end
-
 _G.TGFeralV8933.getRespawnStatus=function()
-    local _,hum=actor()
+    local char,hum=actor()
     return {
-        enabled=CONFIG.AutoRespawn, dead=respawnState.dead,
+        enabled=CONFIG.AutoRespawn,dead=respawnState.dead,
         health=hum and hum.Health or nil,
-        attempts=respawnState.attempts, deaths=respawnState.deaths,
-        successes=respawnState.successes, lastStatus=respawnState.lastStatus,
-        lastButton=respawnState.lastButton, lastMethod=respawnState.lastMethod,
-        lastError=respawnState.lastError, lastDeathVitals=respawnState.lastDeathVitals,
+        attempts=respawnState.attempts,deaths=respawnState.deaths,
+        successes=respawnState.successes,lastStatus=respawnState.lastStatus,
+        lastButton=respawnState.lastButton,
         lastClickSeconds=respawnState.lastClick>0 and os.clock()-respawnState.lastClick or nil
     }
 end
 
--- Monitor independente: interrompe caca/viagem durante a morte.
--- Ao reaparecer, conserva switches do usuario e revalida dados do novo animal.
+-- Monitor independente: interrompe imediatamente caca/viagem durante a tela de morte.
+-- Ao reaparecer, reavalia fome/sede e reseta quests antigas do personagem anterior.
 task.spawn(function()
     while active do
-        local monitorOk,monitorError=pcall(function()
         local char,hum,root=actor()
-        watchDeath(hum)
         local live=hum and hum.Health>0 and root and root.Parent
-        if live then recordAlive(hum,root) end
         local button,deathTitle=locateRespawnUI()
-        local dead=(deathTitle==true) or respawnState.observedDied or (hum~=nil and hum.Health<=0)
+        local dead=(deathTitle==true) or (hum~=nil and hum.Health<=0)
         local now=os.clock()
 
         if dead then
@@ -4923,7 +4701,6 @@ task.spawn(function()
                 respawnState.lastClick=0
                 respawnState.attempts=0
                 respawnState.deaths+=1
-                respawnState.lastDeathVitals=respawnState.aliveVitals
                 controlsEpoch+=1
                 stopMovement()
                 feeding=false
@@ -4933,30 +4710,14 @@ task.spawn(function()
                 setActivity("AutoDrink","PAUSADO: MORTE")
                 setActivity("AutoQuest","PAUSADO: MORTE")
                 setActivity("GetAmber",CONFIG.GetAmber and "PAUSADO: MORTE" or "DESATIVADO")
-                local v=respawnState.lastDeathVitals or {}
-                print("THE GOAT: MORTE DETECTADA | HP anterior",v.hp,
-                    "| Hunger",v.hunger,"| Thirst",v.thirst,"| pos",v.pos)
+                print("THE GOAT: MORTE DETECTADA | aguardando respawn natural")
             end
-            if not CONFIG.AutoRespawn then
-                respawnState.lastStatus="AUTO RESPAWN OFF | AGUARDANDO MANUAL"
-            elseif not button then
-                respawnState.lastStatus="AGUARDANDO BOTAO RESPAWN"
-            elseif now-respawnState.lastClick>=2.6 then
-                respawnState.lastClick=now
-                respawnState.attempts+=1
-                respawnState.lastButton=button:GetFullName()
-                local ok,method,err=requestRespawn(button,respawnState.attempts)
-                respawnState.lastMethod=method
-                respawnState.lastError=err
-                respawnState.lastStatus=ok and "RESPAWN SOLICITADO" or "TENTATIVA SEM SUCESSO"
-                print("THE GOAT AUTO RESPAWN | tentativa",respawnState.attempts,
-                    "| metodo",method,"|",respawnState.lastStatus,err or "")
-            end
+            -- O jogo faz o respawn sozinho: apenas aguarda, sem clicar em compras/botoes.
+            respawnState.lastStatus="AGUARDANDO RESPAWN NATURAL"
             setActivity("AutoRespawn",respawnState.lastStatus)
         elseif respawnState.dead then
             if live then
                 respawnState.dead=false
-                respawnState.observedDied=false
                 respawnState.successes+=1
                 respawnState.lastStatus="RENASCIMENTO CONFIRMADO"
                 setActivity("AutoRespawn","AGUARDANDO MORTE")
@@ -4971,28 +4732,21 @@ task.spawn(function()
                 clearRestGuard("novo personagem apos respawn")
                 feeding=false
                 drinking=false
-                setActivity("AutoFood",CONFIG.AutoFood and "EM ESPERA" or "DESATIVADO")
+                setActivity("AutoFood","EM ESPERA")
                 setActivity("AutoGrass",CONFIG.AutoGrass and "EM ESPERA" or "DESATIVADO")
-                setActivity("AutoDrink",CONFIG.AutoDrink and "EM ESPERA" or "DESATIVADO")
-                setActivity("AutoQuest",CONFIG.AutoQuest and "EM ESPERA" or "DESATIVADO")
+                setActivity("AutoDrink","EM ESPERA")
+                setActivity("AutoQuest","EM ESPERA")
                 setActivity("GetAmber",CONFIG.GetAmber and "EM ESPERA" or "DESATIVADO")
-                print("THE GOAT: RESPAWN CONFIRMADO | automacoes religadas conforme os botoes")
+                print("THE GOAT: PERSONAGEM VIVO | automacoes liberadas apos respawn natural")
             else
-                respawnState.lastStatus="AGUARDANDO NOVO PERSONAGEM"
+                respawnState.lastStatus="AGUARDANDO PERSONAGEM"
                 setActivity("AutoRespawn",respawnState.lastStatus)
             end
         else
             setActivity("AutoRespawn",CONFIG.AutoRespawn and "AGUARDANDO MORTE" or "DESATIVADO")
         end
-        end)
-        if not monitorOk then
-            respawnState.lastStatus="ERRO NO MONITOR | RECUPERANDO"
-            respawnState.lastError=tostring(monitorError)
-            warn("THE GOAT AUTO RESPAWN: erro temporario no monitor |",monitorError)
-        end
         task.wait(respawnState.dead and .65 or 1.2)
     end
-    if diedConnection then pcall(function() diedConnection:Disconnect() end) end
 end)
 
 -- Loop principal continua abaixo; mortes pausam todas as rotinas automaticamente.
@@ -5030,7 +4784,7 @@ task.spawn(function()
                 task.wait(3)
             else
                 local herbivore = herbivoreState()
-                local grassMode = CONFIG.AutoGrass and herbivore ~= false
+                local grassMode = CONFIG.AutoGrass and herbivore == true
                 local grassQuest = grassMode and CONFIG.AutoQuest and questPending("PASTO") or nil
                 local grassTrigger = grassQuest and math.max(CONFIG.GrassStart, CONFIG.QuestEatStart) or CONFIG.GrassStart
                 local foodQuest = CONFIG.AutoFood and not grassMode and not CONFIG.GetAmber and questPending("COMIDA") or nil
@@ -5046,8 +4800,8 @@ task.spawn(function()
 
                 if not CONFIG.AutoFood or grassMode then feeding = false end
                 if not grassMode then grazing = false end
-                if CONFIG.AutoGrass and herbivore == false then
-                    setActivity("AutoGrass", "SOMENTE HERBIVOROS")
+                if CONFIG.AutoGrass and herbivore ~= true then
+                    setActivity("AutoGrass", herbivore == false and "SOMENTE HERBIVOROS" or "ESPECIE DESCONHECIDA")
                 end
                 if grassMode and not grazing and h <= grassTrigger then
                     grazing = true
@@ -5276,12 +5030,10 @@ task.spawn(function()
             warn("THE GOAT: falha na rotina | tentativa",
                 runtimeStatus.consecutiveErrors, "/ 3 |", runtimeStatus.lastError)
             if runtimeStatus.consecutiveErrors >= 3 then
-                warn("THE GOAT: 3 falhas | pausa de 30s para recuperar; painel preservado")
-                task.wait(30)
-                runtimeStatus.consecutiveErrors=0
-            else
-                task.wait(runtimeStatus.consecutiveErrors * 2)
+                warn("THE GOAT: encerrado apos 3 falhas consecutivas; consulte getRuntimeStatus()")
+                break
             end
+            task.wait(runtimeStatus.consecutiveErrors * 2)
         end
     end
     runtimeStatus.recovering = false
@@ -5293,7 +5045,9 @@ end)
 -- if _G.TGFeralV8933 then _G.TGFeralV8933.stop() end  -- encerrar tudo (nao ha X)
 -- Status: print(_G.TGFeralV8933 and _G.TGFeralV8933.isActive())
 -- Get Amber livre: _G.TGFeralV8933.config.GetAmber = true (prefira o botao do painel)
--- Grass: ligue AUTO EAT GRASS no painel como herbivoro e fique proximo a grama.
+-- Grass: ON automaticamente para herbivoros (Hippo, Elephant, Rhino etc.); o botao pode desligar.
+-- Ver especie: print(_G.TGFeralV8933.getHerbivoreStatus().species)
+-- Ver estado: print(_G.TGFeralV8933.getHerbivoreStatus().activity)
 -- Debug: print(_G.TGFeralV8933.getGrassDebug().status)
 -- Scan manual: print(_G.TGFeralV8933.scanGrass().target)
 -- Se nenhuma grama for encontrada, envie logs/nomes dos patches para refinar scanner.
@@ -5314,7 +5068,7 @@ end)
 
 end
 
-print("THE GOAT: iniciando V8.9.33 | Aura V2 integrada | Auto Respawn")
+print("THE GOAT: iniciando versao sem cliques")
 local ok, falha = xpcall(iniciarTheGoat, function(err)
     if debug and type(debug.traceback) == "function" then
         return debug.traceback(tostring(err), 2)
@@ -5324,7 +5078,3 @@ end)
 if not ok then
     warn("THE GOAT: falha na inicializacao | " .. tostring(falha))
 end
-
--- AURA: _G.TGFeralV8933.getAuraStatus().target
--- AURA ON/OFF: _G.TGFeralV8933.setAuraEnabled(true) / (false)
--- ALCANCE: _G.TGFeralV8933.setAuraRange(60)
