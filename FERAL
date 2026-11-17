@@ -1,4 +1,4 @@
--- THE GOAT FERAL V8.9.34 - AUTO QUEST | AURA INTEGRADA | FIX AUTO GRASS HIPPO
+-- THE GOAT FERAL V8.9.34 + SPEED CONTROL | V EXCLUSIVO VELOCIDADE; AURA SO PAINEL
 -- CORRECAO: Auto Grass para Hippo e demais herbivoros; Great Falls, Aura V2 e demais rotinas preservadas.
 -- Preserva Auto Drink, descida automatica, Auto Food, Auto Quest e painel da V8.9.31.
 -- BASE: V8.9.23, com as funcoes e melhorias preservadas da V8.9.21.
@@ -56,7 +56,7 @@ local CONFIG = {
     HungerStop = 95,        -- Para quando a fome recuperar
     AutoQuest = false, -- escolha manual no painel, sempre OFF ao iniciar
     AutoFood = false,     -- AUTO DIETA define conforme animal; OFF ate reconhecer especie
-    AutoAttack = false, -- Aura V2: OFF inicial por seguranca; ative no painel ou V
+    AutoAttack = false, -- Aura V2: OFF inicial; ative apenas no painel / API
     AuraDetectRange = 60,
     AuraMinRange = 10,
     AuraMaxRange = 100,
@@ -1117,6 +1117,10 @@ local function stop()
     if not active then return end
     active = false
     controlsEpoch += 1
+    -- Encerrar tambem o motor externo de velocidade, sem tocar na Aura.
+    if _G.TGGoatSpeed and type(_G.TGGoatSpeed.stop) == "function" then
+        pcall(_G.TGGoatSpeed.stop)
+    end
     pcall(stopMovement)
     for _, connection in ipairs(feedFocusConnections) do
         pcall(function() connection:Disconnect() end)
@@ -1387,7 +1391,7 @@ do
             table.insert(connections,connection)
             return connection
         end
-        local width,fullHeight,smallHeight=352,706,84
+        local width,fullHeight,smallHeight=352,825,84
         local mainPos=UDim2.new(1,-374,0,84)
         local shadow=uiNew("Frame", {
             Name="Shadow", Position=mainPos + UDim2.fromOffset(4,6),
@@ -1514,16 +1518,16 @@ do
             end)
         end
         -- Controle da Aura na MESMA janela, logo abaixo do sexto botao.
-        textLabel(body,"ALCANCE DA AURA",10,C.pale,offset(17,473),offset(120,24),true)
+        textLabel(body,"ALCANCE DA AURA",10,C.pale,offset(17,588),offset(120,24),true)
         local auraMinus=uiNew("TextButton",{
-            Name="AuraMinus",Text="−",Position=offset(143,470),Size=offset(31,28),
+            Name="AuraMinus",Text="−",Position=offset(143,585),Size=offset(31,28),
             Font=Enum.Font.GothamBold,TextSize=18,TextColor3=C.white,
             BackgroundColor3=C.darkNeon,BorderSizePixel=0
         },body)
-        local auraRangeLabel=textLabel(body,"60 studs",11,C.white,offset(179,471),offset(78,27),true)
+        local auraRangeLabel=textLabel(body,"60 studs",11,C.white,offset(179,586),offset(78,27),true)
         auraRangeLabel.TextXAlignment=Enum.TextXAlignment.Center
         local auraPlus=uiNew("TextButton",{
-            Name="AuraPlus",Text="+",Position=offset(263,470),Size=offset(31,28),
+            Name="AuraPlus",Text="+",Position=offset(263,585),Size=offset(31,28),
             Font=Enum.Font.GothamBold,TextSize=18,TextColor3=C.white,
             BackgroundColor3=C.darkNeon,BorderSizePixel=0
         },body)
@@ -1537,26 +1541,20 @@ do
             CONFIG.AuraDetectRange=math.min(CONFIG.AuraMaxRange,CONFIG.AuraDetectRange+10)
             print("THE GOAT AURA V2: alcance",CONFIG.AuraDetectRange)
         end)
-        local auraTargetLine=textLabel(body,"Alvo: desativado",10,C.pale,offset(17,505),offset(317,18),false)
-        -- Tecla V da Aura original: nao interfere no movimento automatico.
-        bind(Input.InputBegan,function(input,processed)
-            if processed or Input:GetFocusedTextBox() then return end
-            if input.KeyCode==Enum.KeyCode.V then
-                auraSetEnabled(not CONFIG.AutoAttack)
-            end
-        end)
+        local auraTargetLine=textLabel(body,"Alvo: desativado",10,C.pale,offset(17,620),offset(317,18),false)
+        -- V RESERVADO PARA CONTROLE DE VELOCIDADE (AURA SO PELO BOTAO).
         -- Status bar, live Hunger and Thirst percentages from character attributes.
         local footerRule=uiNew("Frame",{
-            Size=UDim2.new(1,-32,0,1),Position=offset(16,525),
+            Size=UDim2.new(1,-32,0,1),Position=offset(16,640),
             BackgroundColor3=Color3.fromRGB(35,108,48),BorderSizePixel=0
         },body)
-        local foodIcon=textLabel(body,"◆",15,C.neon,offset(17,537),offset(19,23),true)
-        local foodStatus=textLabel(body,"FOOD --%",11,C.white,offset(36,538),offset(94,22),true)
-        local waterIcon=textLabel(body,"◉",15,C.neon,offset(137,537),offset(20,23),true)
-        local waterStatus=textLabel(body,"WATER --%",11,C.white,offset(157,538),offset(109,22),true)
-        local online=textLabel(body,"● ATIVO",11,C.lime,offset(270,538),offset(78,22),true)
-        local amberCountLabel=textLabel(body,"GET AMBER  |  FARM 0  |  TOTAL 0",10,C.lime,offset(17,566),offset(317,19),true)
-        textLabel(body,"Arraste pelo topo  |  - minimiza",9,C.muted,offset(17,593),offset(317,14),false)
+        local foodIcon=textLabel(body,"◆",15,C.neon,offset(17,652),offset(19,23),true)
+        local foodStatus=textLabel(body,"FOOD --%",11,C.white,offset(36,653),offset(94,22),true)
+        local waterIcon=textLabel(body,"◉",15,C.neon,offset(137,652),offset(20,23),true)
+        local waterStatus=textLabel(body,"WATER --%",11,C.white,offset(157,653),offset(109,22),true)
+        local online=textLabel(body,"● ATIVO",11,C.lime,offset(270,653),offset(78,22),true)
+        local amberCountLabel=textLabel(body,"GET AMBER  |  FARM 0  |  TOTAL 0",10,C.lime,offset(17,681),offset(317,19),true)
+        textLabel(body,"Arraste pelo topo  |  - minimiza",9,C.muted,offset(17,708),offset(317,14),false)
 
         local function animate(inst,props)
             Tween:Create(inst,TweenInfo.new(.15,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),props):Play()
@@ -5496,6 +5494,275 @@ local ok, falha = xpcall(iniciarTheGoat, function(err)
 end)
 if not ok then
     warn("THE GOAT: falha na inicializacao | " .. tostring(falha))
+end
+
+
+-- ================================================================
+-- CONTROLE DE VELOCIDADE V1.2 | MOTOR ISOLADO DA V8.9.34
+-- V: alterna SOMENTE velocidade, NUNCA Kill Aura.
+-- Botao e + / - / valor exato dentro do painel original.
+-- Movimento WASD sem Shift; pausa diante da navegacao automatica.
+-- ================================================================
+do
+    local statusOK, statusErr = pcall(function()
+        if type(_G.TGAmberMoveTest)=="table" and type(_G.TGAmberMoveTest.stop)=="function" then
+            pcall(_G.TGAmberMoveTest.stop) -- remove o teste separado e seu atalho V
+        end
+        if type(_G.TGGoatSpeed)=="table" and type(_G.TGGoatSpeed.stop)=="function" then
+            pcall(_G.TGGoatSpeed.stop)
+        end
+        local goat = _G.TGFeralV8934
+        if type(goat)~="table" or type(goat.isActive)~="function" or not goat.isActive() then
+            warn("TG VELOCIDADE: V8.9.34 nao inicializada; addon nao iniciou")
+            return
+        end
+
+        local Players = game:GetService("Players")
+        local UIS = game:GetService("UserInputService")
+        local RunService = game:GetService("RunService")
+        local player = Players.LocalPlayer
+        local state = {
+            active=true, enabled=false, speed=46, minSpeed=10, maxSpeed=100,
+            applied=0, skippedNavigation=0, last="DESLIGADO", lastError=nil,
+            stamina=nil, maxStamina=nil, realSpeed=0
+        }
+        local connections = {}
+        local lastPrint = 0
+        local nextNavCheck = 0
+        local navActive = false
+        local uiRedraw = function() end
+        local function connect(signal, callback)
+            local c=signal:Connect(callback)
+            table.insert(connections,c)
+            return c
+        end
+        local api = {}
+        function api.status()
+            local t={}
+            for key,val in pairs(state) do t[key]=val end
+            return t
+        end
+        function api.setEnabled(value)
+            if not state.active then return false end
+            state.enabled=(value==true)
+            state.last=state.enabled and "LIGADO" or "DESLIGADO"
+            print("TG VELOCIDADE:",state.last,"| V alterna | WASD sem SHIFT |",state.speed,"studs/s")
+            uiRedraw()
+            return state.enabled
+        end
+        function api.setSpeed(value)
+            local n=tonumber(value)
+            if not n then
+                warn("TG VELOCIDADE: digite um numero entre 10 e 100")
+                uiRedraw()
+                return state.speed
+            end
+            state.speed=math.clamp(math.floor(n+0.5),state.minSpeed,state.maxSpeed)
+            print("TG VELOCIDADE: velocidade ajustada para",state.speed,"studs/s")
+            uiRedraw()
+            return state.speed
+        end
+        function api.stop()
+            if not state.active then return end
+            state.active=false
+            state.enabled=false
+            for _,c in ipairs(connections) do pcall(function() c:Disconnect() end) end
+            table.clear(connections)
+            state.last="ENCERRADO"
+            uiRedraw()
+            print("TG VELOCIDADE: motor desligado")
+        end
+        _G.TGGoatSpeed=api
+
+        -- UI integrada ao corpo do painel; alocacao independente do arquivo principal.
+        local playerGui=player:FindFirstChild("PlayerGui")
+        local gui=playerGui and playerGui:FindFirstChild("THE_GOAT_FERAL_CONTROL_V895")
+        if not gui and type(gethui)=="function" then
+            local okHui,hui=pcall(gethui)
+            if okHui and typeof(hui)=="Instance" then
+                gui=hui:FindFirstChild("THE_GOAT_FERAL_CONTROL_V895")
+            end
+        end
+        if gui then
+            local panel=gui:FindFirstChild("AlienPremium")
+            local body=panel and panel:FindFirstChild("Body")
+            if body then
+                local lime=Color3.fromRGB(57,255,20)
+                local white=Color3.fromRGB(242,255,244)
+                local pale=Color3.fromRGB(185,218,190)
+                local muted=Color3.fromRGB(113,145,121)
+                local greenBg=Color3.fromRGB(14,27,19)
+                local function el(kind,parent,props)
+                    local o=Instance.new(kind)
+                    for k,v in pairs(props) do o[k]=v end
+                    o.Parent=parent
+                    return o
+                end
+                local function label(txt,x,y,w,h,size,color)
+                    return el("TextLabel",body,{
+                        BackgroundTransparency=1,Text=txt,
+                        Font=Enum.Font.GothamBold,TextSize=size or 11,
+                        TextColor3=color or white,TextXAlignment=Enum.TextXAlignment.Left,
+                        Position=UDim2.fromOffset(x,y),Size=UDim2.fromOffset(w,h)
+                    })
+                end
+                local row=el("Frame",body,{
+                    Name="ManualSpeedRow",Position=UDim2.fromOffset(16,470),
+                    Size=UDim2.fromOffset(320,65),BackgroundColor3=greenBg,
+                    BorderSizePixel=0
+                })
+                el("UICorner",row,{CornerRadius=UDim.new(0,12)})
+                el("UIStroke",row,{Color=Color3.fromRGB(38,111,51),Thickness=1,Transparency=0.46})
+                local bar=el("Frame",row,{
+                    Position=UDim2.fromOffset(0,7),Size=UDim2.fromOffset(3,51),
+                    BackgroundColor3=lime,BorderSizePixel=0
+                })
+                el("UICorner",bar,{CornerRadius=UDim.new(0,2)})
+                el("TextLabel",row,{
+                    BackgroundTransparency=1,Text="VELOCIDADE MANUAL",Font=Enum.Font.GothamBold,
+                    TextSize=12,TextColor3=white,TextXAlignment=Enum.TextXAlignment.Left,
+                    Position=UDim2.fromOffset(16,7),Size=UDim2.fromOffset(220,18)
+                })
+                el("TextLabel",row,{
+                    BackgroundTransparency=1,Text="V alterna | WASD sem Shift",Font=Enum.Font.Gotham,
+                    TextSize=10,TextColor3=pale,TextXAlignment=Enum.TextXAlignment.Left,
+                    Position=UDim2.fromOffset(16,25),Size=UDim2.fromOffset(225,16)
+                })
+                local statusText=el("TextLabel",row,{
+                    BackgroundTransparency=1,Text="DESATIVADO",Font=Enum.Font.GothamBold,
+                    TextSize=9,TextColor3=muted,TextXAlignment=Enum.TextXAlignment.Left,
+                    Position=UDim2.fromOffset(16,44),Size=UDim2.fromOffset(205,15)
+                })
+                local speedToggle=el("TextButton",row,{
+                    Name="ManualSpeedToggle",Text="OFF",Font=Enum.Font.GothamBold,
+                    TextSize=12,TextColor3=white,BackgroundColor3=Color3.fromRGB(45,61,49),
+                    Position=UDim2.fromOffset(244,18),Size=UDim2.fromOffset(68,30),
+                    BorderSizePixel=0,AutoButtonColor=false
+                })
+                el("UICorner",speedToggle,{CornerRadius=UDim.new(0,15)})
+                label("AJUSTAR VELOCIDADE",17,543,126,26,10,pale)
+                local speedMinus=el("TextButton",body,{
+                    Name="SpeedMinus",Text="-",Font=Enum.Font.GothamBold,TextSize=18,
+                    TextColor3=white,BackgroundColor3=Color3.fromRGB(16,69,30),
+                    Position=UDim2.fromOffset(143,541),Size=UDim2.fromOffset(31,28),BorderSizePixel=0
+                })
+                local speedValue=el("TextBox",body,{
+                    Name="SpeedValue",Text="46",ClearTextOnFocus=false,
+                    Font=Enum.Font.GothamBold,TextSize=12,TextColor3=white,
+                    BackgroundColor3=Color3.fromRGB(16,69,30),BorderSizePixel=0,
+                    TextXAlignment=Enum.TextXAlignment.Center,
+                    Position=UDim2.fromOffset(179,541),Size=UDim2.fromOffset(78,28),
+                    PlaceholderText="10 - 100"
+                })
+                local speedPlus=el("TextButton",body,{
+                    Name="SpeedPlus",Text="+",Font=Enum.Font.GothamBold,TextSize=18,
+                    TextColor3=white,BackgroundColor3=Color3.fromRGB(16,69,30),
+                    Position=UDim2.fromOffset(263,541),Size=UDim2.fromOffset(31,28),BorderSizePixel=0
+                })
+                for _,obj in ipairs({speedMinus,speedValue,speedPlus}) do
+                    el("UICorner",obj,{CornerRadius=UDim.new(0,7)})
+                end
+                uiRedraw=function()
+                    if not state.active or not row.Parent then return end
+                    speedToggle.Text=state.enabled and "ON" or "OFF"
+                    speedToggle.TextColor3=state.enabled and Color3.fromRGB(0,0,0) or white
+                    speedToggle.BackgroundColor3=state.enabled and lime or Color3.fromRGB(45,61,49)
+                    statusText.Text=state.enabled and (state.last=="MOVIMENTO APLICADO" and "CORRENDO" or state.last) or "DESATIVADO"
+                    statusText.TextColor3=state.enabled and lime or muted
+                    if not speedValue:IsFocused() then speedValue.Text=tostring(state.speed) end
+                end
+                connect(speedToggle.MouseButton1Click,function() api.setEnabled(not state.enabled) end)
+                connect(speedMinus.MouseButton1Click,function() api.setSpeed(state.speed-5) end)
+                connect(speedPlus.MouseButton1Click,function() api.setSpeed(state.speed+5) end)
+                connect(speedValue.FocusLost,function() api.setSpeed(speedValue.Text) end)
+                uiRedraw()
+            else
+                warn("TG VELOCIDADE: painel encontrado mas Body ausente")
+            end
+        else
+            warn("TG VELOCIDADE: painel nao encontrado; tecla V e API continuam operacionais")
+        end
+
+        connect(UIS.InputBegan,function(input,processed)
+            if not state.active or input.KeyCode~=Enum.KeyCode.V then return end
+            if UIS:GetFocusedTextBox() then return end
+            -- Aceitar tambem entradas processadas pelo jogo (igual ao teste V1.1).
+            api.setEnabled(not state.enabled)
+        end)
+
+        connect(RunService.Heartbeat,function()
+            if not state.active or not state.enabled then return end
+            if type(goat.isActive)=="function" and not goat.isActive() then
+                api.stop()
+                return
+            end
+            local okMove,err=pcall(function()
+                local char=player.Character
+                local hum=char and char:FindFirstChildOfClass("Humanoid")
+                local root=char and char:FindFirstChild("HumanoidRootPart")
+                if not char or not hum or not root or hum.Health<=0 then
+                    state.last="SEM PERSONAGEM"
+                    return
+                end
+                state.stamina=char:GetAttribute("Stamina")
+                state.maxStamina=char:GetAttribute("StaminaMax")
+                local velocity=root.AssemblyLinearVelocity
+                state.realSpeed=Vector3.new(velocity.X,0,velocity.Z).Magnitude
+
+                -- Respeita automaticamente a navegação do THE GOAT.
+                local clock=os.clock()
+                if clock>=nextNavCheck then
+                    nextNavCheck=clock+0.25
+                    local yes,snap=pcall(goat.swimStatus)
+                    navActive=yes and type(snap)=="table" and snap.movementActive==true
+                end
+                if navActive then
+                    state.skippedNavigation+=1
+                    state.last="PAUSADO: AUTO NAV"
+                    return
+                end
+                if UIS:IsKeyDown(Enum.KeyCode.LeftShift) or UIS:IsKeyDown(Enum.KeyCode.RightShift) then
+                    state.last="SOLTE SHIFT"
+                    return
+                end
+                local hs=hum:GetState()
+                if hs==Enum.HumanoidStateType.Swimming
+                    or hs==Enum.HumanoidStateType.Seated
+                    or hs==Enum.HumanoidStateType.Dead
+                    or hs==Enum.HumanoidStateType.Jumping
+                    or hs==Enum.HumanoidStateType.Freefall
+                    or hum.FloorMaterial==Enum.Material.Air then
+                    state.last="PAUSADO: FORA DO SOLO"
+                    return
+                end
+                local move=hum.MoveDirection
+                local flat=Vector3.new(move.X,0,move.Z)
+                if flat.Magnitude<0.15 then
+                    state.last="AGUARDANDO WASD"
+                    return
+                end
+                flat=flat.Unit
+                root.AssemblyLinearVelocity=Vector3.new(flat.X*state.speed,velocity.Y,flat.Z*state.speed)
+                state.last="MOVIMENTO APLICADO"
+                state.applied+=1
+                if clock-lastPrint>5 then
+                    lastPrint=clock
+                    print("TG VELOCIDADE |",state.speed,"studs/s | stamina",state.stamina,
+                        "/",state.maxStamina,"| aplicacoes",state.applied)
+                    uiRedraw()
+                end
+            end)
+            if not okMove then
+                state.lastError=tostring(err)
+                warn("TG VELOCIDADE: erro no movimento:",state.lastError)
+                api.setEnabled(false)
+            end
+        end)
+        print("TG VELOCIDADE: instalado | V somente velocidade | Aura apenas no painel | inicial OFF | 46 studs/s")
+    end)
+    if not statusOK then
+        warn("TG VELOCIDADE: erro de inicializacao (script principal preservado):",tostring(statusErr))
+    end
 end
 
 -- AURA: _G.TGFeralV8934.getAuraStatus().target
