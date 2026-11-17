@@ -117,6 +117,7 @@ local CONFIG = {
     -- Beaver Ponds: coordenada confirmada apos o usuario beber e quest ficar DONE.
     BeaverPondsDrinkPos = Vector3.new(-487.36, 37.69, 139.52),
     -- Go to Beaver Ponds: separado de Drink at Beaver Ponds.
+    LunarCrestVisitPos = Vector3.new(-703.95, 201.83, -878.89), -- capturada 12 s apos DONE
     BeaverPondsVisitPos = Vector3.new(-585.19, 41.08, 167.18), -- coordenada informada; conferir DONE
     -- Coordenadas fornecidas pelo usuario; a conclusao deve ser verificada pela GUI.
     GoldenWaterholeVisitPos = Vector3.new(-227.86, 31.52, 112.10), -- GO TO: DONE confirmado
@@ -3033,17 +3034,33 @@ local function findWater()
     return nil
 end
 
+-- Evita repetir o mesmo scan enquanto o animal continua no mesmo barranco.
+local failedScanPosition, failedScanCharacter, failedScanUntil
 local function drinkOnce()
     if not CONFIG.AutoDrink then return end
     local actionEpoch = controlsEpoch
     if os.clock() < nextDrinkTry then return end
+    local scanCharacter, _, scanRoot = actor()
+    if not scanRoot then return end
+    local scanPosition = scanRoot.Position
+    if failedScanPosition and failedScanCharacter == scanCharacter
+        and os.clock() < failedScanUntil
+        and horizontal(scanPosition, failedScanPosition).Magnitude < 20
+        and math.abs(scanPosition.Y - failedScanPosition.Y) < 6 then
+        nextDrinkTry = math.min(failedScanUntil, os.clock() + 1)
+        return
+    end
+    failedScanPosition, failedScanCharacter, failedScanUntil = nil, nil, nil
     nextDrinkTry = os.clock() + 8
     print("AUTO DRINK: iniciando busca | Sede:", tostring(getThirst()))
 
     local target, source, initialDistance, sourceWater = findWater()
     if not CONFIG.AutoDrink or controlsEpoch ~= actionEpoch then return end
     if not target then
-        print("Auto Drink: sem agua detectada; novo scan em instantes")
+        failedScanPosition, failedScanCharacter = scanPosition, scanCharacter
+        failedScanUntil = os.clock() + 45
+        nextDrinkTry = os.clock() + 1
+        print("Auto Drink: sem margem acessivel; nova busca ao mudar de posicao ou em 45 s")
         return
     end
 
@@ -3394,6 +3411,9 @@ local function namedVisitWaypoint(q)
     end
     if t:find("explore granite basin",1,true) or t:find("go to granite basin",1,true) then
         return CONFIG.GraniteBasinVisitPos,"Granite Basin (visita confirmada)"
+    end
+    if t:find("go to lunar crest",1,true) then
+        return CONFIG.LunarCrestVisitPos,"Lunar Crest"
     end
     if t:find("go to beaver ponds",1,true) or t:find("explore beaver ponds",1,true) then
         return CONFIG.BeaverPondsVisitPos,"Beaver Ponds"
