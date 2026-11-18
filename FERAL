@@ -1,4 +1,5 @@
--- THE GOAT FERAL V8.9.35 | AUTO TERRITORY + PAINEL COMPACTO
+-- THE GOAT FERAL V8.9.35 | AUTO TERRITORY + PAINEL COMPACTO RESPONSIVO
+-- UI: toggle ON/OFF imediato; rotina processada separadamente; todas as demais funcoes preservadas.
 -- Base integral: V8.9.34 | mantidas rotinas originais, Speed V, Aura V2, Amber, dietas e navegacao
 -- Get Amber tem suporte interno a fome/sede sem exigir Auto Food/Drink ON no painel.
 -- Tecla V continua exclusiva da velocidade; Aura continua exclusiva do painel.
@@ -1507,7 +1508,21 @@ do
             end
             print("THE GOAT PAINEL:",key,turnOn and "ON" or "OFF")
         end
+        -- V8.9.35 PATCH UI: feedback instantaneo no clique, sem aguardar refresh de 1.25 s.
+        -- Pedido mais recente por chave e processado em serie para evitar toggles perdidos.
         local entries={}
+        local desiredStates={}
+        local applyingStates={}
+        local refresh
+        local function paintToggle(key,enabled)
+            local entry=entries[key]
+            if not entry then return end
+            entry.button.Text=enabled and "ON" or "OFF"
+            entry.button.BackgroundColor3=enabled and c.neon or c.off
+            entry.button.TextColor3=enabled and c.black or c.white
+            entry.outline.Transparency=enabled and .16 or .7
+            entry.status.TextColor3=enabled and c.lime or c.muted
+        end
         local function addRow(page,key,title,subtitle,y)
             local row=round(make("Frame",page,{
                 Name=key,Position=ofs(12,y),Size=ofs(304,48),
@@ -1523,7 +1538,28 @@ do
             }),13)
             entries[key]={button=button,status=status,outline=st,default=subtitle}
             bind(button.MouseButton1Click,function()
-                applyToggle(key,not CONFIG[key])
+                if not active then return end
+                local current=desiredStates[key]
+                if current==nil then current=CONFIG[key]==true end
+                local nextValue=not current
+                desiredStates[key]=nextValue
+                paintToggle(key,nextValue) -- ON/OFF e cor atualizam na hora
+                if applyingStates[key] then return end
+                applyingStates[key]=true
+                task.defer(function()
+                    while active and desiredStates[key]~=nil do
+                        local requested=desiredStates[key]
+                        local ok,err=pcall(applyToggle,key,requested)
+                        if not ok then warn("THE GOAT PAINEL: falha no toggle",key,err) end
+                        -- Se o jogador clicou de novo durante a rotina, aplica a escolha mais recente.
+                        if desiredStates[key]==requested then
+                            desiredStates[key]=nil
+                            break
+                        end
+                    end
+                    applyingStates[key]=nil
+                    if refresh then refresh() end
+                end)
             end)
         end
         -- Todas as rotinas mantidas, com Territory novo e independente.
@@ -1576,14 +1612,12 @@ do
         local life=label(footer,"VIDA --%    FOME --%    SEDE --%",0,0,304,19,11,c.white,true)
         local counts=label(footer,"AMBER 0  •  TERRITORIOS 0/69",0,20,304,18,10,c.lime,true)
         local running=label(footer,"● ATIVO",0,38,304,17,10,c.muted,true)
-        local function refresh()
+        refresh=function()
             if not active or not gui.Parent then return end
             for key,entry in pairs(entries) do
-                local enabled=CONFIG[key]==true
-                entry.button.Text=enabled and "ON" or "OFF"
-                entry.button.BackgroundColor3=enabled and c.neon or c.off
-                entry.button.TextColor3=enabled and c.black or c.white
-                entry.outline.Transparency=enabled and .16 or .7
+                local enabled=desiredStates[key]
+                if enabled==nil then enabled=CONFIG[key]==true end
+                paintToggle(key,enabled)
                 if key=="AutoRespawn" then
                     entry.status.Text=enabled and (activity.AutoRespawn or "AGUARDANDO") or "DESATIVADO"
                 elseif key=="AutoTerritory" and enabled then
@@ -1595,7 +1629,6 @@ do
                     local info=activity[key] or entry.default
                     entry.status.Text=enabled and info or entry.default
                 end
-                entry.status.TextColor3=enabled and c.lime or c.muted
             end
             auraRange.Text=tostring(CONFIG.AuraDetectRange).." studs"
             auraTarget.Text=(auraRuntime.lastTargetText or "Alvo indisponivel")
