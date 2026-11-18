@@ -1380,11 +1380,22 @@ do
         gui.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
         gui.Parent=parent
 
-        local c={bg=Color3.fromRGB(9,15,12),surface=Color3.fromRGB(16,29,23),
-            hover=Color3.fromRGB(23,40,29),neon=Color3.fromRGB(62,244,99),
-            lime=Color3.fromRGB(174,252,139),white=Color3.fromRGB(238,249,239),
-            pale=Color3.fromRGB(167,198,173),muted=Color3.fromRGB(112,147,123),
-            off=Color3.fromRGB(51,68,59),black=Color3.fromRGB(9,16,10)}
+        local c={
+            bg=Color3.fromRGB(10,12,11),
+            panelTop=Color3.fromRGB(16,20,18),
+            surface=Color3.fromRGB(18,23,20),
+            surface2=Color3.fromRGB(24,30,27),
+            hover=Color3.fromRGB(30,40,34),
+            neon=Color3.fromRGB(67,255,120),
+            lime=Color3.fromRGB(179,255,151),
+            white=Color3.fromRGB(240,248,242),
+            pale=Color3.fromRGB(158,199,170),
+            muted=Color3.fromRGB(104,133,112),
+            off=Color3.fromRGB(42,53,46),
+            black=Color3.fromRGB(8,12,9),
+            line=Color3.fromRGB(53,77,61),
+            glow=Color3.fromRGB(36,125,66)
+        }
         local function make(kind,parentObj,props)
             local x=Instance.new(kind)
             for k,v in pairs(props or {}) do x[k]=v end
@@ -1393,8 +1404,11 @@ do
         end
         local function ofs(x,y) return UDim2.fromOffset(x,y) end
         local function round(o,r) make("UICorner",o,{CornerRadius=UDim.new(0,r)}) return o end
-        local function border(o,color,trans)
-            return make("UIStroke",o,{Color=color or c.off,Thickness=1,Transparency=trans or 0})
+        local function border(o,color,trans,thickness)
+            return make("UIStroke",o,{Color=color or c.off,Thickness=thickness or 1,Transparency=trans or 0})
+        end
+        local function gradient(o,c1,c2,rot)
+            return make("UIGradient",o,{Color=ColorSequence.new(c1,c2),Rotation=rot or 90})
         end
         local function label(parentObj,text,x,y,w,h,size,color,bold)
             return make("TextLabel",parentObj,{
@@ -1412,23 +1426,40 @@ do
         end
         local w,full,small=328,456,64
         local pos=UDim2.new(1,-348,0,65)
+        local glow=round(make("Frame",gui,{
+            Name="Glow",Position=pos+ofs(-4,-4),Size=ofs(w+8,full+8),
+            BackgroundColor3=c.glow,BackgroundTransparency=.9,BorderSizePixel=0
+        }),18)
         local shadow=round(make("Frame",gui,{
-            Name="Shadow",Position=pos+ofs(4,5),Size=ofs(w+2,full+2),
-            BackgroundColor3=Color3.new(0,0,0),BackgroundTransparency=.4,BorderSizePixel=0
-        }),14)
+            Name="Shadow",Position=pos+ofs(6,7),Size=ofs(w+4,full+4),
+            BackgroundColor3=Color3.new(0,0,0),BackgroundTransparency=.56,BorderSizePixel=0
+        }),16)
         local panel=round(make("Frame",gui,{
             Name="AlienPremium",Position=pos,Size=ofs(w,full),
             BackgroundColor3=c.bg,BorderSizePixel=0,Active=true,ClipsDescendants=true
-        }),14)
-        border(panel,c.neon,.35)
+        }),16)
+        gradient(panel,c.panelTop,c.bg,90)
+        border(panel,c.neon,.58,1.2)
+        local panelInner=round(make("Frame",panel,{
+            Name="InnerBorder",Position=ofs(1,1),Size=UDim2.new(1,-2,1,-2),
+            BackgroundTransparency=1,BorderSizePixel=0
+        }),15)
+        border(panelInner,c.line,.35,1)
+        local headerBack=round(make("Frame",panel,{
+            Name="HeaderBack",Position=ofs(9,8),Size=ofs(w-18,49),
+            BackgroundColor3=c.surface2,BorderSizePixel=0
+        }),12)
+        gradient(headerBack,Color3.fromRGB(27,34,30),Color3.fromRGB(17,21,19),0)
+        border(headerBack,c.line,.3,1)
         local header=make("Frame",panel,{
             Name="DragHandle",Size=ofs(w,63),BackgroundTransparency=1,Active=true
         })
         local emblem=round(make("Frame",header,{
-            Position=ofs(12,11),Size=ofs(39,39),BackgroundColor3=Color3.fromRGB(16,51,29),
+            Position=ofs(14,12),Size=ofs(38,38),BackgroundColor3=Color3.fromRGB(18,45,31),
             BorderSizePixel=0
-        }),10)
-        border(emblem,c.neon,.35)
+        }),11)
+        gradient(emblem,Color3.fromRGB(23,62,40),Color3.fromRGB(14,34,23),90)
+        border(emblem,c.neon,.42,1)
         local ico=label(emblem,"👽",3,1,33,35,25,c.neon,true)
         ico.TextXAlignment=Enum.TextXAlignment.Center
         local imgId=CONFIG.TigerImageAssetId
@@ -1437,16 +1468,17 @@ do
             make("ImageLabel",emblem,{BackgroundTransparency=1,Image=imgId,
                 Position=ofs(4,4),Size=ofs(31,31),ScaleType=Enum.ScaleType.Fit})
         end
-        label(header,"THE GOAT",62,10,188,26,17,c.white,true)
-        label(header,"FERAL   /   V8.9.35",63,35,196,15,10,c.lime,true)
+        label(header,"THE GOAT",62,9,188,26,18,c.white,true)
+        label(header,"PREMIUM CONTROL  •  FERAL V8.9.35",63,35,208,15,9,c.lime,true)
         local mini=round(make("TextButton",header,{
-            Name="Minimize",Position=ofs(284,16),Size=ofs(30,29),Text="−",
-            Font=Enum.Font.GothamBold,TextSize=19,TextColor3=c.white,
-            BackgroundColor3=c.surface,BorderSizePixel=0,AutoButtonColor=false
-        }),8)
-        border(mini,c.muted,.5)
+            Name="Minimize",Position=ofs(283,16),Size=ofs(31,29),Text="−",
+            Font=Enum.Font.GothamBold,TextSize=18,TextColor3=c.white,
+            BackgroundColor3=c.surface2,BorderSizePixel=0,AutoButtonColor=false
+        }),9)
+        gradient(mini,Color3.fromRGB(30,36,33),Color3.fromRGB(19,24,21),90)
+        border(mini,c.line,.28,1)
         local accent=make("Frame",panel,{Position=ofs(12,63),Size=ofs(304,1),
-            BackgroundColor3=c.neon,BackgroundTransparency=.3,BorderSizePixel=0})
+            BackgroundColor3=c.neon,BackgroundTransparency=.18,BorderSizePixel=0})
         local tabs=make("Frame",panel,{Name="Tabs",Position=ofs(10,70),
             Size=ofs(308,30),BackgroundTransparency=1})
         local body=make("Frame",panel,{Name="Body",Position=ofs(0,103),
@@ -1465,9 +1497,11 @@ do
             pages[key]=page
             local b=round(make("TextButton",tabs,{Name="Tab"..key,
                 Text=txt,Font=Enum.Font.GothamBold,TextSize=10,
-                TextColor3=c.muted,BackgroundColor3=c.surface,
+                TextColor3=c.muted,BackgroundColor3=c.surface2,
                 Position=ofs((i-1)*104,0),Size=ofs(100,29),
-                AutoButtonColor=false,BorderSizePixel=0}),8)
+                AutoButtonColor=false,BorderSizePixel=0}),9)
+            gradient(b,Color3.fromRGB(28,33,30),Color3.fromRGB(18,23,20),90)
+            border(b,c.line,.38,1)
             tabButtons[key]=b
         end
         local function changeTab(tab)
@@ -1476,7 +1510,7 @@ do
                 local on=key==selected
                 page.Visible=on
                 local b=tabButtons[key]
-                b.BackgroundColor3=on and Color3.fromRGB(25,70,39) or c.surface
+                b.BackgroundColor3=on and Color3.fromRGB(24,77,46) or c.surface2
                 b.TextColor3=on and c.lime or c.muted
             end
         end
@@ -1520,23 +1554,30 @@ do
             entry.button.Text=enabled and "ON" or "OFF"
             entry.button.BackgroundColor3=enabled and c.neon or c.off
             entry.button.TextColor3=enabled and c.black or c.white
+            if entry.buttonStroke then
+                entry.buttonStroke.Color=enabled and c.neon or c.line
+                entry.buttonStroke.Transparency=enabled and .18 or .4
+            end
             entry.outline.Transparency=enabled and .16 or .7
             entry.status.TextColor3=enabled and c.lime or c.muted
         end
         local function addRow(page,key,title,subtitle,y)
             local row=round(make("Frame",page,{
                 Name=key,Position=ofs(12,y),Size=ofs(304,48),
-                BackgroundColor3=c.surface,BorderSizePixel=0
-            }),9)
-            local st=border(row,Color3.fromRGB(49,90,57),.6)
+                BackgroundColor3=c.surface2,BorderSizePixel=0
+            }),10)
+            gradient(row,Color3.fromRGB(27,33,30),Color3.fromRGB(19,24,21),0)
+            local st=border(row,c.line,.58,1)
             label(row,title,12,5,215,17,11,c.white,true)
             local status=label(row,subtitle,12,24,220,15,9,c.pale,false)
             local button=round(make("TextButton",row,{
-                Name="Toggle",Text="OFF",Position=ofs(242,10),Size=ofs(51,28),
+                Name="Toggle",Text="OFF",Position=ofs(240,10),Size=ofs(54,28),
                 BackgroundColor3=c.off,BorderSizePixel=0,AutoButtonColor=false,
                 Font=Enum.Font.GothamBold,TextSize=10,TextColor3=c.white
             }),13)
-            entries[key]={button=button,status=status,outline=st,default=subtitle}
+            gradient(button,Color3.fromRGB(53,66,58),Color3.fromRGB(36,45,40),90)
+            local buttonStroke=border(button,c.line,.35,1)
+            entries[key]={button=button,status=status,outline=st,buttonStroke=buttonStroke,default=subtitle}
             bind(button.MouseButton1Click,function()
                 if not active then return end
                 local current=desiredStates[key]
@@ -1579,7 +1620,9 @@ do
         addRow(cb,"GetAmber","GET AMBER","Farm com suporte de fome/sede",33)
         addRow(cb,"AutoAttack","AURA V2","Ataque Bite / BiteHit em NPCs",87)
         local auraBox=round(make("Frame",cb,{Position=ofs(12,147),Size=ofs(304,66),
-            BackgroundColor3=c.surface,BorderSizePixel=0}),9)
+            BackgroundColor3=c.surface2,BorderSizePixel=0}),10)
+        gradient(auraBox,Color3.fromRGB(27,33,30),Color3.fromRGB(19,24,21),0)
+        border(auraBox,c.line,.5,1)
         label(auraBox,"ALCANCE DA AURA",12,6,178,19,10,c.pale,true)
         local am=round(make("TextButton",auraBox,{Text="−",Position=ofs(170,8),Size=ofs(30,27),
             Font=Enum.Font.GothamBold,TextSize=17,TextColor3=c.white,
@@ -1605,7 +1648,9 @@ do
         label(speedSection,"Carregando velocidade manual...",9,8,275,18,10,c.pale,true)
         addRow(settings,"AutoRespawn","AUTO RESPAWN","Respawn gratuito ao morrer",175)
         local settingsNote=round(make("Frame",settings,{Position=ofs(12,232),Size=ofs(304,43),
-            BackgroundColor3=c.surface,BorderSizePixel=0}),9)
+            BackgroundColor3=c.surface2,BorderSizePixel=0}),10)
+        gradient(settingsNote,Color3.fromRGB(27,33,30),Color3.fromRGB(19,24,21),0)
+        border(settingsNote,c.line,.52,1)
         label(settingsNote,"Mova pelo topo • Minimize com −",11,3,280,19,10,c.pale,false)
         label(settingsNote,"V: velocidade  |  Rotinas usam navegacao segura",11,21,280,17,9,c.muted,false)
 
@@ -5906,7 +5951,7 @@ end)
 
 end
 
-print("THE GOAT: iniciando V8.9.35 | AUTO TERRITORY | painel compacto | velocidade V | Aura")
+print("THE GOAT: iniciando V8.9.35 | PREMIUM BLACK+NEON PANEL | AUTO TERRITORY | velocidade V | Aura")
 local ok, falha = xpcall(iniciarTheGoat, function(err)
     if debug and type(debug.traceback) == "function" then
         return debug.traceback(tostring(err), 2)
@@ -6010,12 +6055,13 @@ do
         local speedContainer=settings and settings:FindFirstChild("SpeedSection")
         if speedContainer then
             for _,old in ipairs(speedContainer:GetChildren()) do old:Destroy() end
-            local lime=Color3.fromRGB(62,244,99)
-            local white=Color3.fromRGB(238,249,239)
-            local pale=Color3.fromRGB(167,198,173)
-            local muted=Color3.fromRGB(112,147,123)
-            local dark=Color3.fromRGB(16,29,23)
-            local off=Color3.fromRGB(51,68,59)
+            local lime=Color3.fromRGB(67,255,120)
+            local white=Color3.fromRGB(240,248,242)
+            local pale=Color3.fromRGB(158,199,170)
+            local muted=Color3.fromRGB(104,133,112)
+            local dark=Color3.fromRGB(24,30,27)
+            local off=Color3.fromRGB(42,53,46)
+            local line=Color3.fromRGB(53,77,61)
             local function el(kind,parentObj,props)
                 local o=Instance.new(kind)
                 for k,v in pairs(props) do o[k]=v end
@@ -6025,6 +6071,12 @@ do
             local function corner(o,r)
                 el("UICorner",o,{CornerRadius=UDim.new(0,r)})
                 return o
+            end
+            local function stroke(o,color,trans,thick)
+                return el("UIStroke",o,{Color=color or line,Transparency=trans or 0,Thickness=thick or 1})
+            end
+            local function shade(o,c1,c2,rot)
+                return el("UIGradient",o,{Color=ColorSequence.new(c1,c2),Rotation=rot or 90})
             end
             local function lbl(parentObj,txt,x,y,w,h,sz,color,strong)
                 return el("TextLabel",parentObj,{
@@ -6038,24 +6090,31 @@ do
             local row=corner(el("Frame",speedContainer,{
                 Name="ManualSpeedRow",Position=UDim2.fromOffset(0,0),Size=UDim2.fromOffset(304,49),
                 BackgroundColor3=dark,BorderSizePixel=0
-            }),9)
+            }),10)
+            shade(row,Color3.fromRGB(27,33,30),Color3.fromRGB(19,24,21),0)
+            stroke(row,line,.5,1)
             lbl(row,"VELOCIDADE MANUAL",12,5,215,17,11,white,true)
             local statusText=lbl(row,"OFF • tecla V",12,24,216,17,9,pale,false)
             local speedToggle=corner(el("TextButton",row,{
-                Name="ManualSpeedToggle",Position=UDim2.fromOffset(242,10),Size=UDim2.fromOffset(51,28),
+                Name="ManualSpeedToggle",Position=UDim2.fromOffset(240,10),Size=UDim2.fromOffset(54,28),
                 Text="OFF",Font=Enum.Font.GothamBold,TextSize=10,TextColor3=white,
                 BackgroundColor3=off,BorderSizePixel=0,AutoButtonColor=false
             }),13)
+            shade(speedToggle,Color3.fromRGB(53,66,58),Color3.fromRGB(36,45,40),90)
+            local speedToggleStroke=stroke(speedToggle,line,.35,1)
             local adjust=corner(el("Frame",speedContainer,{
                 Name="SpeedAdjustRow",Position=UDim2.fromOffset(0,56),Size=UDim2.fromOffset(304,48),
                 BackgroundColor3=dark,BorderSizePixel=0
-            }),9)
+            }),10)
+            shade(adjust,Color3.fromRGB(27,33,30),Color3.fromRGB(19,24,21),0)
+            stroke(adjust,line,.5,1)
             lbl(adjust,"VELOCIDADE",12,9,108,30,10,pale,true)
             local minus=corner(el("TextButton",adjust,{
                 Text="−",Position=UDim2.fromOffset(130,9),Size=UDim2.fromOffset(32,29),
                 Font=Enum.Font.GothamBold,TextSize=18,TextColor3=white,
                 BackgroundColor3=off,BorderSizePixel=0
             }),7)
+            stroke(minus,line,.4,1)
             local value=corner(el("TextBox",adjust,{
                 Name="SpeedValue",Text="46",ClearTextOnFocus=false,
                 Position=UDim2.fromOffset(168,9),Size=UDim2.fromOffset(77,29),
@@ -6063,17 +6122,21 @@ do
                 TextXAlignment=Enum.TextXAlignment.Center,BackgroundColor3=off,
                 BorderSizePixel=0,PlaceholderText="10 - 100"
             }),7)
+            stroke(value,line,.4,1)
             local plus=corner(el("TextButton",adjust,{
                 Text="+",Position=UDim2.fromOffset(251,9),Size=UDim2.fromOffset(42,29),
                 Font=Enum.Font.GothamBold,TextSize=16,TextColor3=white,
                 BackgroundColor3=off,BorderSizePixel=0
             }),7)
+            stroke(plus,line,.4,1)
             lbl(speedContainer,"V alterna velocidade; pausa com navegacao automatica.",6,112,296,20,9,muted,false)
             uiRedraw=function()
                 if not state.active or not speedToggle.Parent then return end
                 speedToggle.Text=state.enabled and "ON" or "OFF"
-                speedToggle.TextColor3=state.enabled and Color3.fromRGB(9,16,10) or white
+                speedToggle.TextColor3=state.enabled and Color3.fromRGB(8,12,9) or white
                 speedToggle.BackgroundColor3=state.enabled and lime or off
+                speedToggleStroke.Color=state.enabled and lime or line
+                speedToggleStroke.Transparency=state.enabled and .18 or .35
                 statusText.Text=state.enabled and state.last or "OFF • tecla V"
                 statusText.TextColor3=state.enabled and lime or pale
                 if not value:IsFocused() then value.Text=tostring(state.speed) end
