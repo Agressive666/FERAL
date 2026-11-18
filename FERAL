@@ -1,6 +1,5 @@
--- V8.9.37 | RECONHECIMENTO DE RESPAWN (IMAGEBUTTON/TEXTO) + DESCIDA SECA + TERRITORY
--- V8.9.37 | CORRECAO: SAIDA POR SOLO SECO QUANDO AUTO DRINK FICA SEM DESCIDA
--- THE GOAT FERAL V8.9.37 | AUTO TERRITORY + PAINEL COMPACTO
+-- THE GOAT FERAL V8.9.35 | AUTO TERRITORY + PAINEL COMPACTO RESPONSIVO
+-- UI: toggle ON/OFF imediato; rotina processada separadamente; todas as demais funcoes preservadas.
 -- Base integral: V8.9.34 | mantidas rotinas originais, Speed V, Aura V2, Amber, dietas e navegacao
 -- Get Amber tem suporte interno a fome/sede sem exigir Auto Food/Drink ON no painel.
 -- Tecla V continua exclusiva da velocidade; Aura continua exclusiva do painel.
@@ -100,7 +99,7 @@ local CONFIG = {
     TerritoryClaimRadius = 120, -- somente orientativo, confirmado pelo TerritoryConfig
     TerritoryArrivalRadius = 17,
     TerritoryTimeout = 100,
-    TerritoryProgressTimeout = 35,
+    TerritoryProgressTimeout = 17,
     TerritoryTravelTimeout = 195,
     TerritoryRetrySeconds = 100,
     TerritoryVisitHealthMin = 58,
@@ -248,12 +247,7 @@ local CONFIG = {
     WaterDescentMaxCandidates = 8, -- margens da mesma fonte examinadas
     WaterDescentSpeed = 15, -- mais lento nas curvas e inclinacoes
     WaterDescentLookAhead = 5, -- conserva o sensor anti-queda ativo
-    WaterDescentMaxReplans = 2, -- tenta nova rota apos obstaculo/travamento
-    WaterDryRelocateEnabled = true, -- quando nao ha agua acessivel, busca saida por terra
-    WaterDryRelocateMaxMoves = 8, -- limita exploracao em regiao sem rota ate agua
-    WaterDryRelocateStepTimeout = 34,
-    WaterDryRelocateCooldown = 8,
-    WaterDryRelocateMinThirst = 12 -- abaixo disso nao forca exploracao longa
+    WaterDescentMaxReplans = 2 -- tenta nova rota apos obstaculo/travamento
 }
 
 -- Suporte interno do Get Amber: nao muda o estado visual dos botoes AutoFood/AutoDrink.
@@ -1356,7 +1350,7 @@ _G.TGFeralV8934 = {
     end
 }
 
--- === PAINEL COMPACTO THE GOAT | V8.9.37 ===
+-- === PAINEL COMPACTO THE GOAT | V8.9.35 ===
 -- Mesmas funcoes, layout em 3 abas; janela menor e arrastavel; sem fechar.
 do
     local Input=game:GetService("UserInputService")
@@ -1444,7 +1438,7 @@ do
                 Position=ofs(4,4),Size=ofs(31,31),ScaleType=Enum.ScaleType.Fit})
         end
         label(header,"THE GOAT",62,10,188,26,17,c.white,true)
-        label(header,"FERAL   /   V8.9.37",63,35,196,15,10,c.lime,true)
+        label(header,"FERAL   /   V8.9.35",63,35,196,15,10,c.lime,true)
         local mini=round(make("TextButton",header,{
             Name="Minimize",Position=ofs(284,16),Size=ofs(30,29),Text="−",
             Font=Enum.Font.GothamBold,TextSize=19,TextColor3=c.white,
@@ -1514,7 +1508,21 @@ do
             end
             print("THE GOAT PAINEL:",key,turnOn and "ON" or "OFF")
         end
+        -- V8.9.35 PATCH UI: feedback instantaneo no clique, sem aguardar refresh de 1.25 s.
+        -- Pedido mais recente por chave e processado em serie para evitar toggles perdidos.
         local entries={}
+        local desiredStates={}
+        local applyingStates={}
+        local refresh
+        local function paintToggle(key,enabled)
+            local entry=entries[key]
+            if not entry then return end
+            entry.button.Text=enabled and "ON" or "OFF"
+            entry.button.BackgroundColor3=enabled and c.neon or c.off
+            entry.button.TextColor3=enabled and c.black or c.white
+            entry.outline.Transparency=enabled and .16 or .7
+            entry.status.TextColor3=enabled and c.lime or c.muted
+        end
         local function addRow(page,key,title,subtitle,y)
             local row=round(make("Frame",page,{
                 Name=key,Position=ofs(12,y),Size=ofs(304,48),
@@ -1530,7 +1538,28 @@ do
             }),13)
             entries[key]={button=button,status=status,outline=st,default=subtitle}
             bind(button.MouseButton1Click,function()
-                applyToggle(key,not CONFIG[key])
+                if not active then return end
+                local current=desiredStates[key]
+                if current==nil then current=CONFIG[key]==true end
+                local nextValue=not current
+                desiredStates[key]=nextValue
+                paintToggle(key,nextValue) -- ON/OFF e cor atualizam na hora
+                if applyingStates[key] then return end
+                applyingStates[key]=true
+                task.defer(function()
+                    while active and desiredStates[key]~=nil do
+                        local requested=desiredStates[key]
+                        local ok,err=pcall(applyToggle,key,requested)
+                        if not ok then warn("THE GOAT PAINEL: falha no toggle",key,err) end
+                        -- Se o jogador clicou de novo durante a rotina, aplica a escolha mais recente.
+                        if desiredStates[key]==requested then
+                            desiredStates[key]=nil
+                            break
+                        end
+                    end
+                    applyingStates[key]=nil
+                    if refresh then refresh() end
+                end)
             end)
         end
         -- Todas as rotinas mantidas, com Territory novo e independente.
@@ -1583,14 +1612,12 @@ do
         local life=label(footer,"VIDA --%    FOME --%    SEDE --%",0,0,304,19,11,c.white,true)
         local counts=label(footer,"AMBER 0  •  TERRITORIOS 0/69",0,20,304,18,10,c.lime,true)
         local running=label(footer,"● ATIVO",0,38,304,17,10,c.muted,true)
-        local function refresh()
+        refresh=function()
             if not active or not gui.Parent then return end
             for key,entry in pairs(entries) do
-                local enabled=CONFIG[key]==true
-                entry.button.Text=enabled and "ON" or "OFF"
-                entry.button.BackgroundColor3=enabled and c.neon or c.off
-                entry.button.TextColor3=enabled and c.black or c.white
-                entry.outline.Transparency=enabled and .16 or .7
+                local enabled=desiredStates[key]
+                if enabled==nil then enabled=CONFIG[key]==true end
+                paintToggle(key,enabled)
                 if key=="AutoRespawn" then
                     entry.status.Text=enabled and (activity.AutoRespawn or "AGUARDANDO") or "DESATIVADO"
                 elseif key=="AutoTerritory" and enabled then
@@ -1602,7 +1629,6 @@ do
                     local info=activity[key] or entry.default
                     entry.status.Text=enabled and info or entry.default
                 end
-                entry.status.TextColor3=enabled and c.lime or c.muted
             end
             auraRange.Text=tostring(CONFIG.AuraDetectRange).." studs"
             auraTarget.Text=(auraRuntime.lastTargetText or "Alvo indisponivel")
@@ -1661,7 +1687,7 @@ do
                 task.wait(1.25)
             end
         end)
-        print("THE GOAT PAINEL COMPACTO V8.9.37: 328x456 | abas Rotinas/Combate/Ajustes | mini + drag")
+        print("THE GOAT PAINEL COMPACTO V8.9.35: 328x456 | abas Rotinas/Combate/Ajustes | mini + drag")
     else
         warn("PAINEL THE GOAT: PlayerGui nao encontrado")
     end
@@ -3824,148 +3850,6 @@ local function findWater()
 end
 
 -- Evita repetir o mesmo scan enquanto o animal continua no mesmo barranco.
--- === V8.9.37: BUSCA DE SAIDA EM SOLO SECO ===
--- Quando A* nao encontra ligacao ate a agua sob um penhasco, mudar o ponto
--- de OBSERVACAO por terra, sem teleporte, queda, pulo ou alteracao de colisao.
--- O scan respeita a altura e a inclinacao a cada 4 studs do deslocamento.
-local dryRelocateRay=RaycastParams.new()
-dryRelocateRay.FilterType=Enum.RaycastFilterType.Include
-dryRelocateRay.FilterDescendantsInstances={Terrain}
-dryRelocateRay.IgnoreWater=false
-local dryRelocateState={character=nil,visited={},moves=0,attempts=0,
-    lastAttempt=-math.huge,lastResult="NUNCA TENTADO",lastDestination=nil}
-local function dryGroundAt(x,z,baseY)
-    local hit=workspace:Raycast(Vector3.new(x,baseY+65,z),
-        Vector3.new(0,-200,0),dryRelocateRay)
-    if not hit or hit.Material==Enum.Material.Water
-        or hit.Normal.Y<math.max(0.69,CONFIG.SafeGroundSlopeY) then return nil end
-    return Vector3.new(x,hit.Position.Y+2.8,z)
-end
-local function dryLineSafe(from,dir,radius)
-    local old=dryGroundAt(from.X,from.Z,from.Y)
-    if not old or math.abs(old.Y-from.Y)>10 then return nil end
-    local n=math.ceil(radius/4.0)
-    for i=1,n do
-        local p=dryGroundAt(from.X+dir.X*radius*i/n,
-            from.Z+dir.Z*radius*i/n,from.Y)
-        if not p then return nil end
-        local dy=p.Y-old.Y
-        if dy>CONFIG.SafeMaxClimb or dy< -CONFIG.SafeMaxDrop then return nil end
-        old=p
-    end
-    return old
-end
-local function dryRelocate()
-    if not CONFIG.WaterDryRelocateEnabled or not CONFIG._drinkActive() then return false end
-    local char,hum,root=actor()
-    if not char or hum.Health<=0 then return false end
-    if dryRelocateState.character~=char then
-        dryRelocateState.character=char
-        dryRelocateState.visited={}
-        dryRelocateState.moves=0
-        dryRelocateState.attempts=0
-        dryRelocateState.lastAttempt=-math.huge
-    end
-    local now=os.clock()
-    if now-dryRelocateState.lastAttempt<CONFIG.WaterDryRelocateCooldown then return false end
-    dryRelocateState.lastAttempt=now
-    if dryRelocateState.moves>=CONFIG.WaterDryRelocateMaxMoves then
-        dryRelocateState.lastResult="LIMITE DE EXPLORACAO; REPOSICIONE MANUALMENTE"
-        warn("AUTO DRINK SAIDA SECA: oito mudancas sem agua; aguardando ajuda manual")
-        return false
-    end
-    local epoch=controlsEpoch
-    local origin=root.Position
-    local candidates={}
-    local belowWater=descentStats.water
-    local toWater=typeof(belowWater)=="Vector3" and horizontal(origin,belowWater) or Vector3.zero
-    local waterLower=typeof(belowWater)=="Vector3" and origin.Y-belowWater.Y>30
-    -- Descoberta local limitada e sem nenhum movimento ate verificar o solo.
-    for _,radius in ipairs({40,70,105,140}) do
-        for j=0,15 do
-            if not active or controlsEpoch~=epoch then return false end
-            local angle=math.pi*2*j/16
-            local direction=Vector3.new(math.cos(angle),0,math.sin(angle))
-            local p=dryLineSafe(origin,direction,radius)
-            if p then
-                local novelty=math.huge
-                for _,v in ipairs(dryRelocateState.visited) do
-                    novelty=math.min(novelty,horizontal(p,v).Magnitude)
-                end
-                if novelty>=40 then
-                    local penalty=0
-                    if waterLower and toWater.Magnitude>1 then
-                        -- Evitar andar reto para o precipicio sobre a fonte abaixo.
-                        penalty=math.max(0,direction:Dot(toWater.Unit))*55
-                    end
-                    local score=penalty+math.max(0,p.Y-origin.Y)*3
-                        -math.min(145,novelty)*0.35
-                        -math.max(0,origin.Y-p.Y)*1.6
-                        +radius*0.08
-                    candidates[#candidates+1]={point=p,score=score}
-                end
-            end
-        end
-        task.wait() -- deixa o jogo renderizar entre os lotes do scan
-    end
-    table.sort(candidates,function(a,b) return a.score<b.score end)
-    dryRelocateState.attempts+=1
-    if #candidates==0 then
-        dryRelocateState.lastResult="SEM SAIDA SECA NA AREA; REPOSICIONAR MANUALMENTE"
-        warn("AUTO DRINK SAIDA SECA: nenhuma direcao continua e segura no terreno atual")
-        return false
-    end
-    -- Guardar areas exploradas e mal sucedidas evita andar em circulos.
-    dryRelocateState.visited[#dryRelocateState.visited+1]=origin
-    while #dryRelocateState.visited>18 do table.remove(dryRelocateState.visited,1) end
-    setActivity("AutoDrink","BUSCANDO DESCIDA POR TERRA")
-    for i=1,math.min(3,#candidates) do
-        if not active or controlsEpoch~=epoch or player.Character~=char then return false end
-        local target=candidates[i].point
-        dryRelocateState.visited[#dryRelocateState.visited+1]=target
-        while #dryRelocateState.visited>18 do table.remove(dryRelocateState.visited,1) end
-        dryRelocateState.lastDestination=target
-        print("AUTO DRINK SAIDA SECA: procurando novo acesso a agua | ponto",i,
-            "| distancia",math.floor(horizontal(root.Position,target).Magnitude),
-            "| Y atual",math.floor(root.Position.Y),"| Y destino",math.floor(target.Y))
-        local getDist=startMovement(hum,root,function() return target end,
-            function() return 9 end,function() return 23 end,false)
-        local started=os.clock()
-        local advanced=origin
-        local lastAdvance=started
-        local success=false
-        while active and controlsEpoch==epoch and CONFIG._drinkActive()
-            and player.Character==char and root.Parent and hum.Health>0
-            and os.clock()-started<CONFIG.WaterDryRelocateStepTimeout do
-            task.wait(0.35)
-            local distance,reached,navFailed=getDist()
-            if reached or distance<=9 then success=true;break end
-            if horizontal(root.Position,advanced).Magnitude>=3 then
-                advanced=root.Position
-                lastAdvance=os.clock()
-            end
-            if navFailed or os.clock()-lastAdvance>11 then break end
-            if getThirst() and getThirst()<=CONFIG.WaterDryRelocateMinThirst then break end
-        end
-        stopMovement()
-        if not active or controlsEpoch~=epoch then return false end
-        if success or horizontal(origin,root.Position).Magnitude>=24 then
-            dryRelocateState.moves+=1
-            dryRelocateState.lastResult="REPOSICIONADO; REFAZENDO BUSCA DE AGUA"
-            print("AUTO DRINK SAIDA SECA: moveu por solo; procurando outras margens")
-            return true
-        end
-    end
-    dryRelocateState.lastResult="CANDIDATOS DE TERRA BLOQUEADOS"
-    return false
-end
-_G.TGFeralV8934.getDryRelocateStatus=function()
-    return {moves=dryRelocateState.moves,attempts=dryRelocateState.attempts,
-        lastResult=dryRelocateState.lastResult,
-        lastDestination=dryRelocateState.lastDestination,
-        visited=#dryRelocateState.visited}
-end
-
 local failedScanPosition, failedScanCharacter, failedScanUntil
 local function drinkOnce()
     if not CONFIG._drinkActive() then return end
@@ -3988,19 +3872,10 @@ local function drinkOnce()
     local target, source, initialDistance, sourceWater, descentRoute = findWater()
     if not CONFIG._drinkActive() or controlsEpoch ~= actionEpoch then return end
     if not target then
-        -- Nao repetir o scan no mesmo topo de penhasco: testar um trecho SECO
-        -- navegavel e iniciar outro scan a partir da nova posicao.
-        local relocated=dryRelocate()
-        if relocated then
-            failedScanPosition,failedScanCharacter,failedScanUntil=nil,nil,nil
-            nextDrinkTry=os.clock()+1
-            print("Auto Drink: reposicionado por terra; nova busca de margem")
-            return
-        end
         failedScanPosition, failedScanCharacter = scanPosition, scanCharacter
         failedScanUntil = os.clock() + 45
         nextDrinkTry = os.clock() + 1
-        print("Auto Drink: sem passagem segura; aguardando nova posicao ou 45s")
+        print("Auto Drink: sem margem acessivel; nova busca ao mudar de posicao ou em 45 s")
         return
     end
 
@@ -4869,7 +4744,7 @@ end
 
 do
     local function installTerritoryEngine()
--- === AUTO TERRITORY V8.9.37 | CAPTURA LEGITIMA POR PRESENCA ===
+-- === AUTO TERRITORY V8.9.35 | CAPTURA LEGITIMA POR PRESENCA ===
 -- Confirmado pelo scanner V3: TerritoryConfig.hexCenter(q,r), hexAt(x,z),
 -- FeralTerritory.Hq_r_prog e Hq_r_owner; Player.FeralPack e o ID do grupo.
 -- Nenhum RemoteEvent e enviado. Nao fabrica estado de conquista do servidor.
@@ -5439,9 +5314,8 @@ print("AUTO QUEST: Rest for 90s (R) e Claim a territory habilitados")
 print("AUTO QUEST REST V8.9.34: tenta R via VIM, depois executor; exige progresso real na GUI")
 print("AUTO QUEST REST: se R nao for reconhecido, faz pausa e segue outras quests; nao entra em bloqueio falso")
 print("REST STATUS: print(_G.TGFeralV8934.getRestStatus())")
-print("AUTO RESPAWN V8.9.37: clique fisico/virtual priorizado; suporta ImageButton e rotulo externo")
+print("AUTO RESPAWN: somente botao RESPAWN gratuito na morte confirmada")
 print("RESPAWN STATUS: print(_G.TGFeralV8934.getRespawnStatus())")
-print("RESPAWN GUI DEBUG: print(_G.TGFeralV8934.getRespawnStatus().uiDebug)")
 print("STATUS: ATIVO | Painel compacto Drink / Food / Grass / Quest / Territory / Amber | Speed", CONFIG.Speed)
 print("AUTO TERRITORY: OFF inicial | 71 IDs (69 nao neutros) | criacao de grupo manual | atributos do servidor")
 print("GET AMBER: " .. (CONFIG.GetAmber and "ON" or "OFF") ..
@@ -5465,8 +5339,7 @@ local respawnState = {
     dead=false, since=0, lastClick=0, attempts=0,
     deaths=0, successes=0, lastStatus="INICIANDO", lastButton="nenhum",
     lastMethod="nenhum", lastError=nil, lastDeathVitals=nil,
-    observedDied=false, aliveVitals=nil,
-    uiDebug="NAO OBSERVADO",lastMissingButtonLog=-math.huge
+    observedDied=false, aliveVitals=nil
 }
 
 local function respawnVisible(obj)
@@ -5484,115 +5357,32 @@ end
 
 local function normalizeRespawnText(value)
     return tostring(value or ""):gsub("<[^>]*>", "")
-        :gsub("&nbsp;", " "):gsub("%s+", " ")
-        :gsub("^%s+", ""):gsub("%s+$", ""):upper()
+        :gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", ""):upper()
 end
 
--- === V8.9.37: DETECTOR DE RESPAWN ===
--- O texto pode estar num TextLabel dentro/sobre um ImageButton, ou o
--- proprio botao pode usar nome Respawn e nenhum TextButton.Text.
--- NUNCA seleciona REVIVE, CHANGE ANIMAL, BUY ou opcoes com Robux.
 local function locateRespawnUI()
     local pg=player:FindFirstChild("PlayerGui")
-    if not pg then return nil,false,"SEM PLAYERGUI" end
-    local objects=pg:GetDescendants()
+    if not pg then return nil,false end
     local deathTitle=false
-    local hints={}
-    local best,bestScore=nil,0
-    local fallbackLabel=nil
-    local function isOwnPanel(obj)
-        local ui=obj:FindFirstAncestorWhichIsA("ScreenGui")
-        local sn=ui and ui.Name:upper() or ""
-        return sn:find("THEGOAT",1,true) or sn:find("THE_GOAT",1,true)
-            or sn:find("TGFERAL",1,true)
-    end
-    local function forbidden(value)
-        local t=normalizeRespawnText(value)
-        return t:find("REVIVE",1,true) or t:find("ROBUX",1,true)
-            or t:find("CHANGE ANIMAL",1,true)
-            or t:find("PURCHASE",1,true) or t:find("BUY NOW",1,true)
-            or t:find("AUTO RESPAWN",1,true)
-    end
-    for _,obj in ipairs(objects) do
-        if not isOwnPanel(obj) and respawnVisible(obj) then
-            if obj:IsA("TextLabel") or obj:IsA("TextButton") then
-                local t=normalizeRespawnText(obj.Text)
-                if t:find("YOU DIED",1,true) or t:find("YOU ARE DEAD",1,true)
-                    or t:find("YOU'VE DIED",1,true) or t=="DEATH" then
-                    deathTitle=true
-                end
-                if t:find("RESPAWN",1,true) and not forbidden(t) then
-                    if #hints<8 then hints[#hints+1]=obj.Name.."="..t:sub(1,65) end
-                    if obj:IsA("TextLabel") then
-                        fallbackLabel=fallbackLabel or obj
+    local best=nil
+    for _,obj in ipairs(pg:GetDescendants()) do
+        if (obj:IsA("TextLabel") or obj:IsA("TextButton")) and respawnVisible(obj) then
+            local txt=normalizeRespawnText(obj.Text)
+            if txt=="YOU DIED" then deathTitle=true end
+            if txt=="RESPAWN" then
+                local at=obj
+                while at and at~=pg do
+                    if at:IsA("GuiButton") and respawnVisible(at) then
+                        -- Um alvo unico, do jogo, com nome/texto exato.
+                        best=at
+                        break
                     end
+                    at=at.Parent
                 end
             end
         end
     end
-    -- Procurar botoes reais, sem presumir que seu Text seja "RESPAWN".
-    for _,obj in ipairs(objects) do
-        if obj:IsA("GuiButton") and respawnVisible(obj) and not isOwnPanel(obj) then
-            local ui=obj:FindFirstAncestorWhichIsA("ScreenGui")
-            local screenName=normalizeRespawnText(ui and ui.Name or "")
-            local ownName=normalizeRespawnText(obj.Name)
-            local ownText=obj:IsA("TextButton") and normalizeRespawnText(obj.Text) or ""
-            local parent=obj.Parent
-            local parentName=normalizeRespawnText(parent and parent.Name or "")
-            local childText=""
-            for _,child in ipairs(obj:GetDescendants()) do
-                if child:IsA("TextLabel") or child:IsA("TextButton") then
-                    if respawnVisible(child) then
-                        childText=childText.." "..normalizeRespawnText(child.Text)
-                    end
-                end
-            end
-            local parts=ownName.." "..ownText.." "..childText
-            local score=0
-            if ownText:find("RESPAWN",1,true) then score=score+110 end
-            if ownName:find("RESPAWN",1,true) then score=score+95 end
-            if childText:find("RESPAWN",1,true) then score=score+90 end
-            if parentName:find("RESPAWN",1,true) then score=score+65 end
-            if parent then
-                -- Rótulo pode ser IRMAO do ImageButton (mesmo quadro),
-                -- como nas interfaces estilizadas do FERAL.
-                for _,sib in ipairs(parent:GetChildren()) do
-                    if sib~=obj and (sib:IsA("TextLabel") or sib:IsA("TextButton"))
-                        and respawnVisible(sib) then
-                        local txt=normalizeRespawnText(sib.Text)
-                        if txt:find("RESPAWN",1,true) then
-                            local mid=obj.AbsolutePosition+obj.AbsoluteSize/2
-                            local midLabel=sib.AbsolutePosition+sib.AbsoluteSize/2
-                            if (mid-midLabel).Magnitude<=math.max(110,obj.AbsoluteSize.X) then
-                                score=score+45
-                            end
-                        end
-                    end
-                end
-            end
-            if screenName:find("DEATH",1,true) or screenName:find("DIED",1,true)
-                or screenName:find("DEAD",1,true) then score=score+10 end
-            if ownText:find("FREE",1,true) or childText:find("FREE",1,true)
-                or ownName:find("FREE",1,true) then score=score+15 end
-            -- Exigir uma pista concreta do respawn, nunca um botao generico.
-            if forbidden(parts) or forbidden(parentName)
-                or ownName:find("AUTO",1,true) or ownName:find("TOGGLE",1,true)
-                or ownName:find("REVIVE",1,true) then score=-1 end
-            if score>bestScore and score>=45 then
-                bestScore,best=score,obj
-            end
-        end
-    end
-    -- Se a GUI usa Frame clicavel no lugar de GuiButton, mandar clique
-    -- virtual sobre o rótulo exato de respawn, sem acionar remotes.
-    if not best and fallbackLabel and respawnVisible(fallbackLabel)
-        and not forbidden(fallbackLabel.Parent and fallbackLabel.Parent.Name or "") then
-        best=fallbackLabel
-        hints[#hints+1]="FALLBACK=rotulo (sem GuiButton reconhecido)"
-    end
-    local debugText="Candidatos: "..(#hints>0 and table.concat(hints," | ") or "nenhum")
-    if best then debugText=debugText.." | SELECIONADO: "..best:GetFullName() end
-    return best,deathTitle,debugText
+    return best,deathTitle
 end
 
 -- Descobre a morte mesmo quando a GUI 'YOU DIED' ainda nao carregou.
@@ -5623,72 +5413,55 @@ local function recordAlive(hum,root)
     }
 end
 
--- V8.9.37: prioriza clique real na tela. "firesignal" nao equivale
--- necessariamente a clicar no botao, por isso fica como fallback.
 local function requestRespawn(button,attempt)
-    if not (button and button:IsA("GuiObject") and respawnVisible(button)) then
-        return false,"BOTAO","area de respawn nao visivel"
+    if not (button and button:IsA("GuiButton") and respawnVisible(button)) then
+        return false,"BOTAO", "RESPAWN nao visivel"
     end
-    if not windowFocused then
-        return false,"SEM FOCO","clique aguardando janela Roblox em primeiro plano"
-    end
-    local mid=button.AbsolutePosition+button.AbsoluteSize/2
-    local x,y=math.floor(mid.X),math.floor(mid.Y)
-    local mode=(attempt-1)%4
-    if mode<=1 then
-        local method=mode==0 and "VIM CENTRO" or "VIM COM INSET"
+    -- Cada tentativa usa um metodo distinto para nao disparar duas vezes o mesmo respawn.
+    -- 'firesignal' e 'getconnections' sao opcionais, dependem do executor.
+    local mode=(attempt-1)%5
+    if mode==0 or mode==1 then
+        local method=mode==0 and "MouseButton1Click" or "Activated"
+        if type(firesignal)~="function" then
+            return false,"firesignal("..method..")","executor nao oferece firesignal"
+        end
         local ok,err=pcall(function()
-            if mode==1 then
-                local inset=game:GetService("GuiService"):GetGuiInset()
-                x+=math.floor(inset.X)
-                y+=math.floor(inset.Y)
+            if mode==0 then firesignal(button.MouseButton1Click)
+            else firesignal(button.Activated) end
+        end)
+        return ok,"firesignal("..method..")",ok and nil or tostring(err)
+    elseif mode==2 or mode==3 then
+        local name=mode==2 and "MouseButton1Click" or "Activated"
+        if type(getconnections)~="function" then
+            return false,"getconnections("..name..")","executor nao oferece getconnections"
+        end
+        local called=0
+        local ok,err=pcall(function()
+            local signal=mode==2 and button.MouseButton1Click or button.Activated
+            for _,connection in ipairs(getconnections(signal) or {}) do
+                if connection.Enabled~=false and type(connection.Function)=="function" then
+                    -- Apenas callback do botao RESPAWN exato, nunca outros botoes.
+                    connection.Function()
+                    called+=1
+                end
             end
+        end)
+        if ok and called==0 then return false,"getconnections("..name..")","sem callback acessivel" end
+        return ok,"getconnections("..name..")",ok and nil or tostring(err)
+    else
+        if not windowFocused then
+            return false,"CLICK VIRTUAL","janela sem foco (protegido)"
+        end
+        local ok,err=pcall(function()
+            -- Clique APENAS no centro do botao RESPAWN. Nao move cursor fisico.
             local vim=game:GetService("VirtualInputManager")
-            pcall(function() vim:SendMouseMoveEvent(x,y,game) end)
+            local pos=button.AbsolutePosition+button.AbsoluteSize/2
+            local x,y=math.floor(pos.X),math.floor(pos.Y)
             vim:SendMouseButtonEvent(x,y,0,true,game,0)
-            task.wait(0.12)
+            task.wait(.08)
             vim:SendMouseButtonEvent(x,y,0,false,game,0)
         end)
-        return ok,method,ok and nil or tostring(err)
-    elseif mode==2 then
-        -- Metodo alternativo usado quando o cliente bloqueia eventos VIM.
-        local ok,err=pcall(function()
-            local virtualUser=game:GetService("VirtualUser")
-            local pos=Vector2.new(x,y)
-            local cam=workspace.CurrentCamera
-            virtualUser:Button1Down(pos,cam and cam.CFrame or CFrame.new())
-            task.wait(0.10)
-            virtualUser:Button1Up(pos,cam and cam.CFrame or CFrame.new())
-        end)
-        return ok,"VIRTUAL USER",ok and nil or tostring(err)
-    else
-        if not button:IsA("GuiButton") then
-            return false,"SINAL","elemento de texto; somente clique virtual disponivel"
-        end
-        if type(firesignal)=="function" then
-            local ok,err=pcall(function()
-                firesignal(button.Activated)
-            end)
-            if ok then return true,"FIRESIGNAL ACTIVATED",nil end
-            return false,"FIRESIGNAL ACTIVATED",tostring(err)
-        end
-        if type(getconnections)=="function" then
-            local count=0
-            local ok,err=pcall(function()
-                for _,conn in ipairs(getconnections(button.Activated) or {}) do
-                    if conn.Enabled~=false and type(conn.Function)=="function" then
-                        conn.Function()
-                        count+=1
-                    end
-                end
-            end)
-            local msg=nil
-            if not ok then msg=tostring(err)
-            elseif count==0 then msg="nenhuma callback" end
-            return ok and count>0,"CONNECTIONS ACTIVATED",msg
-        end
-        local ok,err=pcall(function() button:Activate() end)
-        return ok,"GUI ACTIVATE",ok and nil or tostring(err)
+        return ok,"CLICK VIRTUAL",ok and nil or tostring(err)
     end
 end
 
@@ -5701,7 +5474,6 @@ _G.TGFeralV8934.getRespawnStatus=function()
         successes=respawnState.successes, lastStatus=respawnState.lastStatus,
         lastButton=respawnState.lastButton, lastMethod=respawnState.lastMethod,
         lastError=respawnState.lastError, lastDeathVitals=respawnState.lastDeathVitals,
-        uiDebug=respawnState.uiDebug,
         lastClickSeconds=respawnState.lastClick>0 and os.clock()-respawnState.lastClick or nil
     }
 end
@@ -5715,8 +5487,7 @@ task.spawn(function()
         watchDeath(hum)
         local live=hum and hum.Health>0 and root and root.Parent
         if live then recordAlive(hum,root) end
-        local button,deathTitle,debugInfo=locateRespawnUI()
-        respawnState.uiDebug=debugInfo
+        local button,deathTitle=locateRespawnUI()
         local dead=(deathTitle==true) or respawnState.observedDied or (hum~=nil and hum.Health<=0)
         local now=os.clock()
 
@@ -5726,7 +5497,6 @@ task.spawn(function()
                 respawnState.since=now
                 respawnState.lastClick=0
                 respawnState.attempts=0
-                respawnState.lastMissingButtonLog=-math.huge
                 respawnState.deaths+=1
                 respawnState.lastDeathVitals=respawnState.aliveVitals
                 controlsEpoch+=1
@@ -5746,12 +5516,7 @@ task.spawn(function()
             if not CONFIG.AutoRespawn then
                 respawnState.lastStatus="AUTO RESPAWN OFF | AGUARDANDO MANUAL"
             elseif not button then
-                respawnState.lastStatus="BUSCANDO BOTAO RESPAWN"
-                if now-respawnState.lastMissingButtonLog>=8 then
-                    respawnState.lastMissingButtonLog=now
-                    warn("THE GOAT AUTO RESPAWN: sem alvo de clique |",debugInfo)
-                    warn("THE GOAT: DIAGNOSTICO: print(_G.TGFeralV8934.getRespawnStatus().uiDebug)")
-                end
+                respawnState.lastStatus="AGUARDANDO BOTAO RESPAWN"
             elseif now-respawnState.lastClick>=2.6 then
                 respawnState.lastClick=now
                 respawnState.attempts+=1
@@ -5759,7 +5524,7 @@ task.spawn(function()
                 local ok,method,err=requestRespawn(button,respawnState.attempts)
                 respawnState.lastMethod=method
                 respawnState.lastError=err
-                respawnState.lastStatus=ok and "CLIQUE ENVIADO; AGUARDANDO CONFIRMACAO" or "TENTATIVA SEM SUCESSO"
+                respawnState.lastStatus=ok and "RESPAWN SOLICITADO" or "TENTATIVA SEM SUCESSO"
                 print("THE GOAT AUTO RESPAWN | tentativa",respawnState.attempts,
                     "| metodo",method,"|",respawnState.lastStatus,err or "")
             end
@@ -5883,17 +5648,6 @@ task.spawn(function()
                     if drinking and t >= CONFIG.DrinkStop then drinking = false end
                 end
 
-                -- O Auto Territory fica suspenso enquanto a sobrevivencia tem
-                -- prioridade; explicitar o motivo no painel, evitando "PAUSADO" vago.
-                if CONFIG.AutoTerritory and drinking then
-                    territoryStatus.phase="PAUSA: SEDE"
-                    territoryStatus.detail="Sede="..tostring(math.floor(t or 0)).."%; procurando agua"
-                    setActivity("AutoTerritory","PAUSADO: SEDE")
-                elseif CONFIG.AutoTerritory and (feeding or grazing) then
-                    territoryStatus.phase="PAUSA: FOME"
-                    territoryStatus.detail="Fome="..tostring(math.floor(h or 0)).."%; procurando comida"
-                    setActivity("AutoTerritory","PAUSADO: FOME")
-                end
                 -- Sede critica: primeiro a fonte mais proxima, sem caminhada longa.
                 -- Sede moderada: uma quest "Drink at" conhecida tem prioridade,
                 -- para contar a missao alem de hidratar o animal.
@@ -6120,7 +5874,7 @@ task.spawn(function()
     end
     runtimeStatus.recovering = false
     stop()
-    print("THE GOAT FERAL V8.9.37 SESSAO " .. sessionID .. " DESLIGADA")
+    print("THE GOAT FERAL V8.9.35 SESSAO " .. sessionID .. " DESLIGADA")
 end)
 
 -- Para desligar no console:
@@ -6152,7 +5906,7 @@ end)
 
 end
 
-print("THE GOAT: iniciando V8.9.37 | AUTO TERRITORY | painel compacto | velocidade V | Aura")
+print("THE GOAT: iniciando V8.9.35 | AUTO TERRITORY | painel compacto | velocidade V | Aura")
 local ok, falha = xpcall(iniciarTheGoat, function(err)
     if debug and type(debug.traceback) == "function" then
         return debug.traceback(tostring(err), 2)
