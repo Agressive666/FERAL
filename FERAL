@@ -1,4 +1,5 @@
--- THE GOAT FERAL V8.9.34 + SPEED CONTROL + GET AMBER INDEPENDENTE
+-- THE GOAT FERAL V8.9.35 | AUTO TERRITORY + PAINEL COMPACTO
+-- Base integral: V8.9.34 | mantidas rotinas originais, Speed V, Aura V2, Amber, dietas e navegacao
 -- Get Amber tem suporte interno a fome/sede sem exigir Auto Food/Drink ON no painel.
 -- Tecla V continua exclusiva da velocidade; Aura continua exclusiva do painel.
 -- CORRECAO: Auto Grass para Hippo e demais herbivoros; Great Falls, Aura V2 e demais rotinas preservadas.
@@ -93,6 +94,15 @@ local CONFIG = {
     AutoRespawn = true, -- ao morrer, solicita somente o RESPAWN gratuito se visivel
     -- GET AMBER: independente de Auto Quest e de quests pendentes; desligado por padrao.
     GetAmber = false,
+    AutoTerritory = false, -- OFF por padrao; requer grupo ja criado no jogo
+    TerritoryClaimRadius = 120, -- somente orientativo, confirmado pelo TerritoryConfig
+    TerritoryArrivalRadius = 17,
+    TerritoryTimeout = 100,
+    TerritoryProgressTimeout = 17,
+    TerritoryTravelTimeout = 195,
+    TerritoryRetrySeconds = 100,
+    TerritoryVisitHealthMin = 58,
+    TerritoryMaxCandidatePoints = 8,
     AmberHuntRadius = 850,
     AmberSpecies = {"Deer", "Otter", "Fox"}, -- nao persegue Tiger, Bear, Rhino, Wolf etc.
     AmberStartHealthPercent = 90,  -- somente inicia com a vida alta
@@ -262,6 +272,12 @@ local nextDrinkTry = 0
 local navLog = {} -- historico compacto (ultimas 60 mensagens)
 local descentStats={attempts=0, successes=0, last="NAO TESTADO",
     nodes=0, waypoints=0, time=0, water=nil}
+local territoryStatus = {
+    ready=false, enabled=false, pack=nil, total=0, capturable=0,
+    owned=0, current=nil, region="", progress=0, successes=0,
+    failures=0, phase="AGUARDANDO", detail="", lastResult="", lastAt=0
+}
+local territoryStep = nil -- ligado depois de startMovement e das funcoes de Quest
 local amberKills = 0
 local totalConfirmedKills = 0
 local countedNPCKills = setmetatable({}, {__mode = "k"})
@@ -279,6 +295,7 @@ local activity = {
     AutoGrass = "EM ESPERA",
     AutoQuest = "EM ESPERA",
     GetAmber = "DESATIVADO",
+    AutoTerritory = "DESATIVADO",
     AutoRespawn = "AGUARDANDO MORTE",
     AutoAttack = "DESATIVADO"
 }
@@ -1318,7 +1335,7 @@ _G.TGFeralV8934 = {
             movementActive=movementConnection~=nil}
     end,
     getControls = function()
-        return {AutoDrink = CONFIG.AutoDrink, AutoFood = CONFIG.AutoFood, AutoGrass = CONFIG.AutoGrass, AutoQuest = CONFIG.AutoQuest, GetAmber = CONFIG.GetAmber, AutoRespawn = CONFIG.AutoRespawn, AutoAttack = CONFIG.AutoAttack}
+        return {AutoDrink = CONFIG.AutoDrink, AutoFood = CONFIG.AutoFood, AutoGrass = CONFIG.AutoGrass, AutoQuest = CONFIG.AutoQuest, GetAmber = CONFIG.GetAmber, AutoTerritory = CONFIG.AutoTerritory, AutoRespawn = CONFIG.AutoRespawn, AutoAttack = CONFIG.AutoAttack}
     end,
     getAmberSupportStatus = function()
         local herbivore = herbivoreState()
@@ -1328,329 +1345,298 @@ _G.TGFeralV8934 = {
             hunger=getHunger(), thirst=getThirst()}
     end,
     getActivity = function()
-        return {AutoDrink = activity.AutoDrink, AutoFood = activity.AutoFood, AutoGrass = activity.AutoGrass, AutoQuest = activity.AutoQuest, GetAmber = activity.GetAmber, AutoRespawn = activity.AutoRespawn, AutoAttack = activity.AutoAttack}
+        return {AutoDrink = activity.AutoDrink, AutoFood = activity.AutoFood, AutoGrass = activity.AutoGrass, AutoQuest = activity.AutoQuest, GetAmber = activity.GetAmber, AutoTerritory = activity.AutoTerritory, AutoRespawn = activity.AutoRespawn, AutoAttack = activity.AutoAttack}
     end
 }
 
--- === PAINEL TIGER / AMBER PREMIUM V8.9.34 ===
--- Interface Roblox real (nao a imagem estatica). Logo usa emoji de tigre,
--- evitando rbxassetid inventado; pode-se informar um ID proprio opcional abaixo.
+-- === PAINEL COMPACTO THE GOAT | V8.9.35 ===
+-- Mesmas funcoes, layout em 3 abas; janela menor e arrastavel; sem fechar.
 do
-    local Input = game:GetService("UserInputService")
-    local Tween = game:GetService("TweenService")
-    local guiName = "THE_GOAT_FERAL_CONTROL_V895"
-    local playerGui = player:WaitForChild("PlayerGui", 6)
-    local parent = playerGui
-    if type(gethui) == "function" then
-        local ok, result = pcall(gethui)
-        if ok and typeof(result) == "Instance" then parent = result end
+    local Input=game:GetService("UserInputService")
+    local Tween=game:GetService("TweenService")
+    local guiName="THE_GOAT_FERAL_CONTROL_V895" -- nome preservado para addon Speed
+    local playerGui=player:WaitForChild("PlayerGui",6)
+    local parent=playerGui
+    if type(gethui)=="function" then
+        local ok,hui=pcall(gethui)
+        if ok and typeof(hui)=="Instance" then parent=hui end
     end
     if parent then
-        -- Limpa paineis antigos dos dois containers para evitar janelas duplicadas.
-        local guiContainers={parent}
-        if playerGui and playerGui~=parent then table.insert(guiContainers,playerGui) end
-        for _, container in ipairs(guiContainers) do
-            for _, oldName in ipairs({"THE_GOAT_FERAL_CONTROL_V895", "THE_GOAT_FERAL_CONTROL_V893", "THE_GOAT_FERAL_CONTROL_V892", "THE_GOAT_FERAL_CONTROL_V891"}) do
-                local old = container:FindFirstChild(oldName)
+        local containers={parent}
+        if playerGui and playerGui~=parent then table.insert(containers,playerGui) end
+        for _,container in ipairs(containers) do
+            for _,oldName in ipairs({guiName,"THE_GOAT_FERAL_CONTROL_V893",
+                "THE_GOAT_FERAL_CONTROL_V892","THE_GOAT_FERAL_CONTROL_V891"}) do
+                local old=container:FindFirstChild(oldName)
                 if old then old:Destroy() end
             end
         end
-        local gui = Instance.new("ScreenGui")
-        gui.Name = guiName
-        gui.ResetOnSpawn = false
-        gui.IgnoreGuiInset = true
-        gui.DisplayOrder = 9100
-        gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-        gui.Parent = parent
+        local gui=Instance.new("ScreenGui")
+        gui.Name=guiName
+        gui.ResetOnSpawn=false
+        gui.IgnoreGuiInset=true
+        gui.DisplayOrder=9100
+        gui.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
+        gui.Parent=parent
 
-        local C = {
-            bg=Color3.fromRGB(6,9,7), panel=Color3.fromRGB(9,15,11),
-            row=Color3.fromRGB(14,27,19), rowHover=Color3.fromRGB(20,43,28),
-            neon=Color3.fromRGB(57,255,20), lime=Color3.fromRGB(173,255,98),
-            bright=Color3.fromRGB(8,224,88), darkNeon=Color3.fromRGB(16,69,30),
-            white=Color3.fromRGB(242,255,244), pale=Color3.fromRGB(185,218,190),
-            muted=Color3.fromRGB(113,145,121), off=Color3.fromRGB(45,61,49)
-        }
-        local function uiNew(kind, props, parentObj)
-            local inst=Instance.new(kind)
-            for key,value in pairs(props) do inst[key]=value end
-            inst.Parent=parentObj
-            return inst
+        local c={bg=Color3.fromRGB(9,15,12),surface=Color3.fromRGB(16,29,23),
+            hover=Color3.fromRGB(23,40,29),neon=Color3.fromRGB(62,244,99),
+            lime=Color3.fromRGB(174,252,139),white=Color3.fromRGB(238,249,239),
+            pale=Color3.fromRGB(167,198,173),muted=Color3.fromRGB(112,147,123),
+            off=Color3.fromRGB(51,68,59),black=Color3.fromRGB(9,16,10)}
+        local function make(kind,parentObj,props)
+            local x=Instance.new(kind)
+            for k,v in pairs(props or {}) do x[k]=v end
+            x.Parent=parentObj
+            return x
         end
-        local function corner(inst, pixels)
-            uiNew("UICorner", {CornerRadius=UDim.new(0,pixels)}, inst)
+        local function ofs(x,y) return UDim2.fromOffset(x,y) end
+        local function round(o,r) make("UICorner",o,{CornerRadius=UDim.new(0,r)}) return o end
+        local function border(o,color,trans)
+            return make("UIStroke",o,{Color=color or c.off,Thickness=1,Transparency=trans or 0})
         end
-        local function stroke(inst,color,thickness,transparency)
-            return uiNew("UIStroke", {
-                Color=color, Thickness=thickness or 1, Transparency=transparency or 0
-            },inst)
+        local function label(parentObj,text,x,y,w,h,size,color,bold)
+            return make("TextLabel",parentObj,{
+                BackgroundTransparency=1,Text=text,Font=bold and Enum.Font.GothamBold or Enum.Font.Gotham,
+                TextSize=size or 11,TextColor3=color or c.white,
+                TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Center,
+                TextTruncate=Enum.TextTruncate.AtEnd,Position=ofs(x,y),Size=ofs(w,h)
+            })
         end
-        local function gradient(inst, a, b, angle)
-            uiNew("UIGradient", {
-                Color=ColorSequence.new({ColorSequenceKeypoint.new(0,a),ColorSequenceKeypoint.new(1,b)}),
-                Rotation=angle or 0
-            },inst)
-        end
-        local function textLabel(parentObj,txt,sz,color,pos,size,bold)
-            return uiNew("TextLabel", {
-                BackgroundTransparency=1, BorderSizePixel=0, Text=txt, TextSize=sz,
-                TextColor3=color, Font=bold and Enum.Font.GothamBold or Enum.Font.Gotham,
-                TextXAlignment=Enum.TextXAlignment.Left, TextYAlignment=Enum.TextYAlignment.Center,
-                Position=pos, Size=size
-            },parentObj)
-        end
-        local function offset(x,y) return UDim2.fromOffset(x,y) end
         local connections={}
-        local function bind(sig,fn)
-            local connection=sig:Connect(fn)
-            table.insert(connections,connection)
-            return connection
+        local function bind(signal,callback)
+            local conn=signal:Connect(callback)
+            table.insert(connections,conn)
+            return conn
         end
-        local width,fullHeight,smallHeight=352,825,84
-        local mainPos=UDim2.new(1,-374,0,84)
-        local shadow=uiNew("Frame", {
-            Name="Shadow", Position=mainPos + UDim2.fromOffset(4,6),
-            Size=offset(width+2,fullHeight+2), BackgroundColor3=Color3.fromRGB(0,0,0),
-            BackgroundTransparency=.43, BorderSizePixel=0
-        },gui)
-        corner(shadow,19)
-        local panel=uiNew("Frame", {
-            Name="AlienPremium", Position=mainPos, Size=offset(width,fullHeight),
-            BackgroundColor3=C.bg, BorderSizePixel=0, Active=true,
-            ClipsDescendants=true
-        },gui)
-        corner(panel,18)
-        local border=stroke(panel,C.neon,1.5,.12)
-        gradient(panel,Color3.fromRGB(9,29,15),Color3.fromRGB(3,7,5),100)
-
-        local header=uiNew("Frame", {
-            Name="DragHandle", Size=UDim2.new(1,0,0,84),
-            BackgroundTransparency=1,Active=true
-        },panel)
-        -- Neon stripes in the header, subtle and entirely noninteractive.
-        for i=1,3 do
-            local stripe=uiNew("Frame", {
-                Name="AlienStripe", BackgroundColor3=C.darkNeon,
-                BackgroundTransparency=.52, BorderSizePixel=0,
-                Position=offset(272+i*15,-8+i*10),Size=offset(11,73),
-                Rotation=33
-            },header)
-            corner(stripe,5)
+        local w,full,small=328,456,64
+        local pos=UDim2.new(1,-348,0,65)
+        local shadow=round(make("Frame",gui,{
+            Name="Shadow",Position=pos+ofs(4,5),Size=ofs(w+2,full+2),
+            BackgroundColor3=Color3.new(0,0,0),BackgroundTransparency=.4,BorderSizePixel=0
+        }),14)
+        local panel=round(make("Frame",gui,{
+            Name="AlienPremium",Position=pos,Size=ofs(w,full),
+            BackgroundColor3=c.bg,BorderSizePixel=0,Active=true,ClipsDescendants=true
+        }),14)
+        border(panel,c.neon,.35)
+        local header=make("Frame",panel,{
+            Name="DragHandle",Size=ofs(w,63),BackgroundTransparency=1,Active=true
+        })
+        local emblem=round(make("Frame",header,{
+            Position=ofs(12,11),Size=ofs(39,39),BackgroundColor3=Color3.fromRGB(16,51,29),
+            BorderSizePixel=0
+        }),10)
+        border(emblem,c.neon,.35)
+        local ico=label(emblem,"👽",3,1,33,35,25,c.neon,true)
+        ico.TextXAlignment=Enum.TextXAlignment.Center
+        local imgId=CONFIG.TigerImageAssetId
+        if type(imgId)=="string" and imgId:match("^rbxassetid://%d+$") then
+            ico.Visible=false
+            make("ImageLabel",emblem,{BackgroundTransparency=1,Image=imgId,
+                Position=ofs(4,4),Size=ofs(31,31),ScaleType=Enum.ScaleType.Fit})
         end
-        local emblem=uiNew("Frame", {
-            Name="AlienEmblem", Position=offset(14,16),Size=offset(48,48),
-            BackgroundColor3=Color3.fromRGB(11,36,16),BorderSizePixel=0
-        },header)
-        corner(emblem,12)
-        stroke(emblem,C.neon,1.5,.1)
-        gradient(emblem,Color3.fromRGB(18,100,35),Color3.fromRGB(4,16,10),90)
-        local alien=textLabel(emblem,"👽",32,C.lime,offset(4,1),offset(42,44),true)
-        alien.TextXAlignment=Enum.TextXAlignment.Center
-        -- Optional logo once the user uploads a tiger image to Roblox and has an asset ID.
-        local customTigerImage = CONFIG.TigerImageAssetId
-        if type(customTigerImage)=="string" and customTigerImage:match("^rbxassetid://%d+$") then
-            alien.Visible=false
-            uiNew("ImageLabel", {
-                Name="AlienCustom",BackgroundTransparency=1,
-                Size=offset(41,41),Position=offset(4,3),Image=customTigerImage,
-                ScaleType=Enum.ScaleType.Fit
-            },emblem)
+        label(header,"THE GOAT",62,10,188,26,17,c.white,true)
+        label(header,"FERAL   /   V8.9.35",63,35,196,15,10,c.lime,true)
+        local mini=round(make("TextButton",header,{
+            Name="Minimize",Position=ofs(284,16),Size=ofs(30,29),Text="−",
+            Font=Enum.Font.GothamBold,TextSize=19,TextColor3=c.white,
+            BackgroundColor3=c.surface,BorderSizePixel=0,AutoButtonColor=false
+        }),8)
+        border(mini,c.muted,.5)
+        local accent=make("Frame",panel,{Position=ofs(12,63),Size=ofs(304,1),
+            BackgroundColor3=c.neon,BackgroundTransparency=.3,BorderSizePixel=0})
+        local tabs=make("Frame",panel,{Name="Tabs",Position=ofs(10,70),
+            Size=ofs(308,30),BackgroundTransparency=1})
+        local body=make("Frame",panel,{Name="Body",Position=ofs(0,103),
+            Size=ofs(w,284),BackgroundTransparency=1,ClipsDescendants=true})
+        local footer=make("Frame",panel,{Name="Footer",Position=ofs(11,393),
+            Size=ofs(306,58),BackgroundTransparency=1})
+        make("Frame",panel,{Position=ofs(11,390),Size=ofs(306,1),
+            BorderSizePixel=0,BackgroundColor3=Color3.fromRGB(52,85,61)})
+        local pages={}
+        local tabButtons={}
+        local selected="Rotinas"
+        for i,item in ipairs({{"Rotinas","ROTINAS"},{"Combate","COMBATE"},{"Ajustes","AJUSTES"}}) do
+            local key,txt=item[1],item[2]
+            local page=make("Frame",body,{Name=key=="Ajustes" and "SettingsTab" or key.."Tab",
+                Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Visible=key==selected})
+            pages[key]=page
+            local b=round(make("TextButton",tabs,{Name="Tab"..key,
+                Text=txt,Font=Enum.Font.GothamBold,TextSize=10,
+                TextColor3=c.muted,BackgroundColor3=c.surface,
+                Position=ofs((i-1)*104,0),Size=ofs(100,29),
+                AutoButtonColor=false,BorderSizePixel=0}),8)
+            tabButtons[key]=b
         end
-        textLabel(header,"THE GOAT",19,C.white,offset(75,15),offset(201,25),true)
-        textLabel(header,"FERAL  |  V8.9.34 NEON",10,C.lime,offset(76,41),offset(225,18),true)
-        local mini=uiNew("TextButton", {
-            Name="Minimize", Position=UDim2.new(1,-45,0,16),Size=offset(30,30),
-            Text="−",Font=Enum.Font.GothamBold,TextSize=20,TextColor3=C.white,
-            BackgroundColor3=Color3.fromRGB(20,47,30),BorderSizePixel=0
-        },header)
-        corner(mini,9)
-        stroke(mini,C.neon,1,.62)
-
-        local accent=uiNew("Frame", {
-            Name="NeonDivider",Position=offset(16,80),Size=UDim2.new(1,-32,0,2),
-            BackgroundColor3=C.neon,BorderSizePixel=0
-        },panel)
-        gradient(accent,C.bright,C.lime)
-        local body=uiNew("Frame", {
-            Name="Body",Position=offset(0,85),Size=UDim2.new(1,0,1,-85),
-            BackgroundTransparency=1
-        },panel)
-        local sec=textLabel(body,"//  AUTOMACOES",11,C.pale,offset(17,10),offset(240,21),true)
-        local controls={
-            {key="AutoDrink",name="AUTO DRINK",desc="Encontrar agua e beber",symbol="💦"},
-            {key="AutoFood",name="AUTO FOOD",desc="Cacar e se alimentar",symbol="🍖"},
-            {key="AutoGrass",name="AUTO EAT GRASS",desc="Herbivoros: buscar grama e pastar",symbol="🌿"},
-            {key="AutoQuest",name="AUTO QUEST",desc="Missoes",symbol="🗺️"},
-            {key="GetAmber",name="GET AMBER",desc="Farm independente das missoes",symbol="💰"},
-            {key="AutoAttack",name="AUTO ATTACK (AURA)",desc="Bite / BiteHit em NPCs",symbol="⚔️"}
-        }
-        local controlsUI={}
-        for i,item in ipairs(controls) do
-            local y=37+(i-1)*72
-            local row=uiNew("Frame", {
-                Name=item.key,Size=offset(320,65),Position=offset(16,y),
-                BackgroundColor3=C.row,BorderSizePixel=0
-            },body)
-            corner(row,12)
-            local rowStroke=stroke(row,Color3.fromRGB(38,111,51),1,.46)
-            local leftEdge=uiNew("Frame", {
-                Position=offset(0,7),Size=offset(3,51),
-                BackgroundColor3=C.neon,BorderSizePixel=0
-            },row)
-            corner(leftEdge,2)
-            local tile=uiNew("Frame", {
-                Position=offset(10,14),Size=offset(36,36),
-                BackgroundColor3=Color3.fromRGB(16,57,26),BorderSizePixel=0
-            },row)
-            corner(tile,10)
-            stroke(tile,C.bright,1,.38)
-            local sym=textLabel(tile,item.symbol,21,C.white,offset(0,0),offset(36,36),false)
-            sym.TextXAlignment=Enum.TextXAlignment.Center
-            textLabel(row,item.name,12,C.white,offset(54,7),offset(184,18),true)
-            textLabel(row,item.desc,10,C.pale,offset(54,24),offset(191,16),false)
-            local status=textLabel(row,"EM ESPERA",9,C.neon,offset(54,43),offset(178,14),true)
-            local toggle=uiNew("TextButton", {
-                Name="Toggle",Size=offset(69,30),Position=UDim2.new(1,-79,0,18),
-                BackgroundColor3=C.neon,BorderSizePixel=0,Text="",
-                AutoButtonColor=false
-            },row)
-            corner(toggle,15)
-            local tgStroke=stroke(toggle,C.lime,1,.3)
-            local onText=textLabel(toggle,"ON",11,C.white,offset(11,0),offset(39,30),true)
-            local knob=uiNew("Frame",{
-                Name="Knob",Position=offset(43,5),Size=offset(20,20),
-                BackgroundColor3=Color3.fromRGB(225,255,228),BorderSizePixel=0
-            },toggle)
-            corner(knob,10)
-            controlsUI[item.key]={toggle=toggle,text=onText,knob=knob,status=status,stroke=rowStroke,row=row,toggleStroke=tgStroke}
-            bind(row.MouseEnter,function()
-                row.BackgroundColor3=C.rowHover
-                rowStroke.Transparency=.13
-            end)
-            bind(row.MouseLeave,function()
-                row.BackgroundColor3=C.row
-                rowStroke.Transparency=.46
-            end)
-        end
-        -- Controle da Aura na MESMA janela, logo abaixo do sexto botao.
-        textLabel(body,"ALCANCE DA AURA",10,C.pale,offset(17,588),offset(120,24),true)
-        local auraMinus=uiNew("TextButton",{
-            Name="AuraMinus",Text="−",Position=offset(143,585),Size=offset(31,28),
-            Font=Enum.Font.GothamBold,TextSize=18,TextColor3=C.white,
-            BackgroundColor3=C.darkNeon,BorderSizePixel=0
-        },body)
-        local auraRangeLabel=textLabel(body,"60 studs",11,C.white,offset(179,586),offset(78,27),true)
-        auraRangeLabel.TextXAlignment=Enum.TextXAlignment.Center
-        local auraPlus=uiNew("TextButton",{
-            Name="AuraPlus",Text="+",Position=offset(263,585),Size=offset(31,28),
-            Font=Enum.Font.GothamBold,TextSize=18,TextColor3=C.white,
-            BackgroundColor3=C.darkNeon,BorderSizePixel=0
-        },body)
-        corner(auraMinus,7)
-        corner(auraPlus,7)
-        bind(auraMinus.MouseButton1Click,function()
-            CONFIG.AuraDetectRange=math.max(CONFIG.AuraMinRange,CONFIG.AuraDetectRange-10)
-            print("THE GOAT AURA V2: alcance",CONFIG.AuraDetectRange)
-        end)
-        bind(auraPlus.MouseButton1Click,function()
-            CONFIG.AuraDetectRange=math.min(CONFIG.AuraMaxRange,CONFIG.AuraDetectRange+10)
-            print("THE GOAT AURA V2: alcance",CONFIG.AuraDetectRange)
-        end)
-        local auraTargetLine=textLabel(body,"Alvo: desativado",10,C.pale,offset(17,620),offset(317,18),false)
-        -- V RESERVADO PARA CONTROLE DE VELOCIDADE (AURA SO PELO BOTAO).
-        -- Status bar, live Hunger and Thirst percentages from character attributes.
-        local footerRule=uiNew("Frame",{
-            Size=UDim2.new(1,-32,0,1),Position=offset(16,640),
-            BackgroundColor3=Color3.fromRGB(35,108,48),BorderSizePixel=0
-        },body)
-        local foodIcon=textLabel(body,"◆",15,C.neon,offset(17,652),offset(19,23),true)
-        local foodStatus=textLabel(body,"FOOD --%",11,C.white,offset(36,653),offset(94,22),true)
-        local waterIcon=textLabel(body,"◉",15,C.neon,offset(137,652),offset(20,23),true)
-        local waterStatus=textLabel(body,"WATER --%",11,C.white,offset(157,653),offset(109,22),true)
-        local online=textLabel(body,"● ATIVO",11,C.lime,offset(270,653),offset(78,22),true)
-        local amberCountLabel=textLabel(body,"GET AMBER  |  FARM 0  |  TOTAL 0",10,C.lime,offset(17,681),offset(317,19),true)
-        textLabel(body,"Arraste pelo topo  |  - minimiza",9,C.muted,offset(17,708),offset(317,14),false)
-
-        local function animate(inst,props)
-            Tween:Create(inst,TweenInfo.new(.15,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),props):Play()
-        end
-        local function redraw()
-            if not active or not gui.Parent then return end
-            for _,item in ipairs(controls) do
-                local refs=controlsUI[item.key]
-                local enabled=CONFIG[item.key]
-                refs.status.Text=enabled and (activity[item.key] or "EM ESPERA") or "DESATIVADO"
-                refs.status.TextColor3=enabled and C.lime or C.muted
-                refs.text.Text=enabled and "ON" or "OFF"
-                refs.text.Position=enabled and offset(10,0) or offset(28,0)
-                refs.text.TextColor3=enabled and Color3.fromRGB(0,0,0) or C.white
-                refs.toggle.BackgroundColor3=enabled and C.neon or C.off
-                refs.knob.Position=enabled and offset(43,5) or offset(5,5)
-                refs.toggleStroke.Transparency=enabled and .3 or .8
+        local function changeTab(tab)
+            selected=tab
+            for key,page in pairs(pages) do
+                local on=key==selected
+                page.Visible=on
+                local b=tabButtons[key]
+                b.BackgroundColor3=on and Color3.fromRGB(25,70,39) or c.surface
+                b.TextColor3=on and c.lime or c.muted
             end
-            local hunger,thirst=getHunger(),getThirst()
-            foodStatus.Text="FOOD "..(hunger and tostring(math.floor(hunger)) or "--").."%"
-            waterStatus.Text="WATER "..(thirst and tostring(math.floor(thirst)) or "--").."%"
-            online.Text=runtimeStatus.recovering and "● RECUPERANDO" or "● ATIVO"
-            auraRangeLabel.Text=tostring(CONFIG.AuraDetectRange).." studs"
-            auraTargetLine.Text=auraRuntime.lastTargetText.."  |  Tentativas: "..tostring(auraRuntime.attempts)
-            local _, currentHum = actor()
-            local hp = currentHum and currentHum.MaxHealth > 0
-                and math.floor(currentHum.Health / currentHum.MaxHealth * 100) or 0
-            amberCountLabel.Text="💰 FARM " .. tostring(amberKills) .. " ABATES  |  TOTAL " .. tostring(totalConfirmedKills) .. "  |  VIDA " .. tostring(hp) .. "%"
         end
-        for _,item in ipairs(controls) do
-            local refs=controlsUI[item.key]
-            bind(refs.toggle.MouseButton1Click,function()
-                if not active then return end
-                local now=not CONFIG[item.key]
-                CONFIG[item.key]=now
-                if item.key=="AutoAttack" then auraSetEnabled(now) end
-                -- Alternar Auto Quest nao interrompe um farm de Amber ativo.
-                if item.key ~= "AutoRespawn" and item.key ~= "AutoAttack"
-                    and not (item.key == "AutoQuest" and CONFIG.GetAmber) then
-                    controlsEpoch += 1
-                    stopMovement()
-                    setActivity("AutoDrink","EM ESPERA")
-                    setActivity("AutoFood","EM ESPERA")
-                    setActivity("AutoGrass", CONFIG.AutoGrass and "EM ESPERA" or "DESATIVADO")
-                    setActivity("GetAmber", CONFIG.GetAmber and "EM ESPERA" or "DESATIVADO")
+        for key,b in pairs(tabButtons) do
+            bind(b.MouseButton1Click,function() changeTab(key) end)
+        end
+        changeTab("Rotinas")
+
+        local function applyToggle(key,turnOn)
+            if not active then return end
+            if key=="AutoAttack" then
+                auraSetEnabled(turnOn)
+            elseif key=="AutoTerritory" and type(_G.TGFeralV8934.setAutoTerritory)=="function" then
+                _G.TGFeralV8934.setAutoTerritory(turnOn)
+            else
+                if CONFIG[key]==turnOn then return end
+                CONFIG[key]=turnOn
+                if key~="AutoRespawn" and not (key=="AutoQuest" and CONFIG.GetAmber) then
+                    controlsEpoch+=1
+                    pcall(stopMovement)
+                    setActivity("AutoDrink",CONFIG.AutoDrink and "EM ESPERA" or "DESATIVADO")
+                    setActivity("AutoFood",CONFIG.AutoFood and "EM ESPERA" or "DESATIVADO")
+                    setActivity("AutoGrass",CONFIG.AutoGrass and "EM ESPERA" or "DESATIVADO")
+                    setActivity("GetAmber",CONFIG.GetAmber and "EM ESPERA" or "DESATIVADO")
                 end
-                setActivity("AutoQuest", CONFIG.AutoQuest and
-                    (CONFIG.GetAmber and "PAUSADO PELO GET AMBER" or "EM ESPERA") or "DESATIVADO")
-                animate(refs.knob,{Position=now and offset(43,5) or offset(5,5)})
-                redraw()
-                print("PAINEL ALIEN:",item.key,now and "ATIVADO" or "DESATIVADO")
+            end
+            if key=="AutoQuest" then
+                setActivity("AutoQuest",turnOn and "EM ESPERA" or "DESATIVADO")
+            end
+            print("THE GOAT PAINEL:",key,turnOn and "ON" or "OFF")
+        end
+        local entries={}
+        local function addRow(page,key,title,subtitle,y)
+            local row=round(make("Frame",page,{
+                Name=key,Position=ofs(12,y),Size=ofs(304,48),
+                BackgroundColor3=c.surface,BorderSizePixel=0
+            }),9)
+            local st=border(row,Color3.fromRGB(49,90,57),.6)
+            label(row,title,12,5,215,17,11,c.white,true)
+            local status=label(row,subtitle,12,24,220,15,9,c.pale,false)
+            local button=round(make("TextButton",row,{
+                Name="Toggle",Text="OFF",Position=ofs(242,10),Size=ofs(51,28),
+                BackgroundColor3=c.off,BorderSizePixel=0,AutoButtonColor=false,
+                Font=Enum.Font.GothamBold,TextSize=10,TextColor3=c.white
+            }),13)
+            entries[key]={button=button,status=status,outline=st,default=subtitle}
+            bind(button.MouseButton1Click,function()
+                applyToggle(key,not CONFIG[key])
             end)
+        end
+        -- Todas as rotinas mantidas, com Territory novo e independente.
+        local rt=pages.Rotinas
+        for i,item in ipairs({
+            {"AutoDrink","AUTO DRINK","Buscar agua e beber"},
+            {"AutoFood","AUTO FOOD","Caca, carcaca e alimentacao"},
+            {"AutoGrass","AUTO GRASS","Pasto para herbivoros"},
+            {"AutoQuest","AUTO QUEST","Missoes QUICK / DAILY"},
+            {"AutoTerritory","AUTO TERRITORY","Conquistar hexagonos do mapa"}
+        }) do
+            addRow(rt,item[1],item[2],item[3],29+(i-1)*52)
+        end
+        label(rt,"AUTOMACOES",13,4,210,20,10,c.lime,true)
+        local cb=pages.Combate
+        label(cb,"FARM E COMBATE",13,4,235,20,10,c.lime,true)
+        addRow(cb,"GetAmber","GET AMBER","Farm com suporte de fome/sede",33)
+        addRow(cb,"AutoAttack","AURA V2","Ataque Bite / BiteHit em NPCs",87)
+        local auraBox=round(make("Frame",cb,{Position=ofs(12,147),Size=ofs(304,66),
+            BackgroundColor3=c.surface,BorderSizePixel=0}),9)
+        label(auraBox,"ALCANCE DA AURA",12,6,178,19,10,c.pale,true)
+        local am=round(make("TextButton",auraBox,{Text="−",Position=ofs(170,8),Size=ofs(30,27),
+            Font=Enum.Font.GothamBold,TextSize=17,TextColor3=c.white,
+            BackgroundColor3=c.off,BorderSizePixel=0}),7)
+        local auraRange=label(auraBox,"60",202,8,56,27,11,c.white,true)
+        auraRange.TextXAlignment=Enum.TextXAlignment.Center
+        local ap=round(make("TextButton",auraBox,{Text="+",Position=ofs(264,8),Size=ofs(30,27),
+            Font=Enum.Font.GothamBold,TextSize=17,TextColor3=c.white,
+            BackgroundColor3=c.off,BorderSizePixel=0}),7)
+        local auraTarget=label(auraBox,"Alvo: aguardando",12,40,280,17,10,c.muted,false)
+        bind(am.MouseButton1Click,function()
+            CONFIG.AuraDetectRange=math.max(CONFIG.AuraMinRange,CONFIG.AuraDetectRange-10)
+        end)
+        bind(ap.MouseButton1Click,function()
+            CONFIG.AuraDetectRange=math.min(CONFIG.AuraMaxRange,CONFIG.AuraDetectRange+10)
+        end)
+        label(cb,"AURA funciona somente pelo botao; tecla V e da velocidade.",13,228,290,29,9,c.muted,false)
+
+        local settings=pages.Ajustes
+        label(settings,"MOVIMENTO E SISTEMA",13,4,245,19,10,c.lime,true)
+        local speedSection=make("Frame",settings,{Name="SpeedSection",Position=ofs(12,29),
+            Size=ofs(304,137),BackgroundTransparency=1})
+        label(speedSection,"Carregando velocidade manual...",9,8,275,18,10,c.pale,true)
+        addRow(settings,"AutoRespawn","AUTO RESPAWN","Respawn gratuito ao morrer",175)
+        local settingsNote=round(make("Frame",settings,{Position=ofs(12,232),Size=ofs(304,43),
+            BackgroundColor3=c.surface,BorderSizePixel=0}),9)
+        label(settingsNote,"Mova pelo topo • Minimize com −",11,3,280,19,10,c.pale,false)
+        label(settingsNote,"V: velocidade  |  Rotinas usam navegacao segura",11,21,280,17,9,c.muted,false)
+
+        local life=label(footer,"VIDA --%    FOME --%    SEDE --%",0,0,304,19,11,c.white,true)
+        local counts=label(footer,"AMBER 0  •  TERRITORIOS 0/69",0,20,304,18,10,c.lime,true)
+        local running=label(footer,"● ATIVO",0,38,304,17,10,c.muted,true)
+        local function refresh()
+            if not active or not gui.Parent then return end
+            for key,entry in pairs(entries) do
+                local enabled=CONFIG[key]==true
+                entry.button.Text=enabled and "ON" or "OFF"
+                entry.button.BackgroundColor3=enabled and c.neon or c.off
+                entry.button.TextColor3=enabled and c.black or c.white
+                entry.outline.Transparency=enabled and .16 or .7
+                if key=="AutoRespawn" then
+                    entry.status.Text=enabled and (activity.AutoRespawn or "AGUARDANDO") or "DESATIVADO"
+                elseif key=="AutoTerritory" and enabled then
+                    local phase=activity.AutoTerritory or "EM ESPERA"
+                    local hex=territoryStatus.current
+                    entry.status.Text=hex and (phase.."  "..hex.."  "..
+                        math.floor(territoryStatus.progress*100).."%") or phase
+                else
+                    local info=activity[key] or entry.default
+                    entry.status.Text=enabled and info or entry.default
+                end
+                entry.status.TextColor3=enabled and c.lime or c.muted
+            end
+            auraRange.Text=tostring(CONFIG.AuraDetectRange).." studs"
+            auraTarget.Text=(auraRuntime.lastTargetText or "Alvo indisponivel")
+            local hunger,thirst=getHunger(),getThirst()
+            local _,hum=actor()
+            local hp=hum and hum.MaxHealth>0 and math.floor(hum.Health/hum.MaxHealth*100) or 0
+            life.Text=string.format("VIDA %d%%    FOME %s%%    SEDE %s%%", hp,
+                hunger and tostring(math.floor(hunger)) or "--",
+                thirst and tostring(math.floor(thirst)) or "--")
+            counts.Text="AMBER "..tostring(amberKills).."  •  TERRITORIOS "..
+                tostring(territoryStatus.owned).."/"..tostring(territoryStatus.capturable>0 and territoryStatus.capturable or 69)
+            running.Text=runtimeStatus.recovering and "● RECUPERANDO" or
+                (CONFIG.AutoTerritory and ("● TERRITORY: "..territoryStatus.phase..
+                    (territoryStatus.current and (" • "..territoryStatus.current) or "")) or "● ATIVO")
+            running.TextColor3=runtimeStatus.recovering and Color3.fromRGB(255,199,95) or c.neon
         end
         local minimized=false
         bind(mini.MouseButton1Click,function()
             minimized=not minimized
-            body.Visible=not minimized
-            accent.Visible=not minimized
-            panel.Size=offset(width,minimized and smallHeight or fullHeight)
-            shadow.Size=offset(width+2,(minimized and smallHeight or fullHeight)+2)
+            for _,element in ipairs({accent,tabs,body,footer}) do element.Visible=not minimized end
+            panel.Size=ofs(w,minimized and small or full)
+            shadow.Size=ofs(w+2,(minimized and small or full)+2)
             mini.Text=minimized and "+" or "−"
         end)
-        local dragging=false
-        local dragStart,panelStart=nil,nil
+        local dragging,initial,startPos=false,nil,nil
         bind(header.InputBegan,function(input)
             if input.UserInputType==Enum.UserInputType.MouseButton1
                 or input.UserInputType==Enum.UserInputType.Touch then
                 dragging=true
-                dragStart=input.Position
-                panelStart=panel.Position
+                initial=input.Position
+                startPos=panel.Position
             end
         end)
         bind(Input.InputChanged,function(input)
-            if dragging and dragStart and panelStart and (
+            if dragging and initial and startPos and (
                 input.UserInputType==Enum.UserInputType.MouseMovement
                 or input.UserInputType==Enum.UserInputType.Touch) then
-                local delta=input.Position-dragStart
-                panel.Position=UDim2.new(panelStart.X.Scale,panelStart.X.Offset+delta.X,
-                    panelStart.Y.Scale,panelStart.Y.Offset+delta.Y)
-                shadow.Position=UDim2.new(panel.Position.X.Scale,panel.Position.X.Offset+4,
-                    panel.Position.Y.Scale,panel.Position.Y.Offset+6)
+                local delta=input.Position-initial
+                panel.Position=UDim2.new(startPos.X.Scale,startPos.X.Offset+delta.X,
+                    startPos.Y.Scale,startPos.Y.Offset+delta.Y)
+                shadow.Position=panel.Position+ofs(4,5)
             end
         end)
         bind(Input.InputEnded,function(input)
@@ -1661,14 +1647,14 @@ do
             for _,conn in ipairs(connections) do pcall(function() conn:Disconnect() end) end
             if gui.Parent then gui:Destroy() end
         end
-        redraw()
+        refresh()
         task.spawn(function()
             while active and gui.Parent do
-                redraw()
-                task.wait(1.2)
+                refresh()
+                task.wait(1.25)
             end
         end)
-        print("PAINEL ALIEN NEON THE GOAT V8.9.34: pronto | sem X | minimiza com -")
+        print("THE GOAT PAINEL COMPACTO V8.9.35: 328x456 | abas Rotinas/Combate/Ajustes | mini + drag")
     else
         warn("PAINEL THE GOAT: PlayerGui nao encontrado")
     end
@@ -4723,6 +4709,377 @@ local function doTerritoryQuest(q)
     print("AUTO QUEST TERRITORIO: ainda pendente; nenhuma captura confirmada")
 end
 
+do
+    local function installTerritoryEngine()
+-- === AUTO TERRITORY V8.9.35 | CAPTURA LEGITIMA POR PRESENCA ===
+-- Confirmado pelo scanner V3: TerritoryConfig.hexCenter(q,r), hexAt(x,z),
+-- FeralTerritory.Hq_r_prog e Hq_r_owner; Player.FeralPack e o ID do grupo.
+-- Nenhum RemoteEvent e enviado. Nao fabrica estado de conquista do servidor.
+local terrCfg, terrFolder, terrHexes = nil, nil, {}
+local terrLoadAt, terrCooldowns, terrLastPack = 0, {}, nil
+local terrGroundCast = RaycastParams.new()
+terrGroundCast.FilterType = Enum.RaycastFilterType.Include
+terrGroundCast.FilterDescendantsInstances = {Terrain}
+terrGroundCast.IgnoreWater = false
+
+local function terrPack()
+    local pack = player:GetAttribute("FeralPack")
+    if pack == nil or pack == false or tostring(pack)=="" or tostring(pack)=="0" then return nil end
+    return pack
+end
+local function terrSamePack(value, pack)
+    return value~=nil and pack~=nil and tostring(value)==tostring(pack)
+end
+local function terrLog(msg)
+    territoryStatus.detail=tostring(msg)
+    territoryStatus.lastAt=os.clock()
+    print("[TG AUTO TERRITORY]",msg)
+end
+local function terrSetPhase(phase,detail)
+    territoryStatus.phase=phase
+    setActivity("AutoTerritory",phase)
+    if detail then territoryStatus.detail=tostring(detail) end
+end
+local function terrCoords(a,b)
+    if typeof(a)=="Vector2" then return a.X,a.Y end
+    if typeof(a)=="Vector3" then return a.X,a.Z end
+    if type(a)=="number" and type(b)=="number" then return a,b end
+    if type(a)=="table" then
+        local x=a.X or a.x or a[1]
+        local z=a.Z or a.z or a.Y or a.y or a[2]
+        if type(x)=="number" and type(z)=="number" then return x,z end
+    end
+    return nil,nil
+end
+local function terrHexPair(a,b)
+    if type(a)=="number" and type(b)=="number" then return a,b end
+    if typeof(a)=="Vector2" then return a.X,a.Y end
+    if type(a)=="string" then
+        local q,r=a:match("H?(%d+)[_,;:](%d+)")
+        if q then return tonumber(q),tonumber(r) end
+    end
+    if type(a)=="table" then
+        local q=a.q or a.Q or a.x or a.X or a.col or a[1]
+        local r=a.r or a.R or a.y or a.Y or a.row or a[2]
+        if type(q)=="number" and type(r)=="number" then return q,r end
+    end
+    return nil,nil
+end
+local function terrLoad()
+    if terrCfg and terrFolder and terrFolder.Parent and #terrHexes>0 then return true end
+    if terrLoadAt>0 and os.clock()-terrLoadAt < 12 then return false end
+    terrLoadAt=os.clock()
+    local rs=game:GetService("ReplicatedStorage")
+    local folder=rs:FindFirstChild("FeralTerritory")
+    local world=rs:FindFirstChild("FeralWorld")
+    local module=world and world:FindFirstChild("TerritoryConfig")
+    if not folder or not module then
+        terrSetPhase("SEM DADOS", "FeralTerritory/TerritoryConfig ausente")
+        return false
+    end
+    local ok, config=pcall(require,module)
+    if not ok or type(config)~="table" or type(config.hexCenter)~="function"
+        or type(config.hexAt)~="function" then
+        terrSetPhase("CONFIG INCOMPATIVEL", "hexCenter/hexAt indisponiveis")
+        return false
+    end
+    local hexList={}
+    local seen={}
+    local list=tostring(folder:GetAttribute("Hexes") or "")
+    for qs,rs2 in list:gmatch("(%d+),(%d+)") do
+        local q,r=tonumber(qs),tonumber(rs2)
+        local key="H"..q.."_"..r
+        if not seen[key] then
+            seen[key]=true
+            local safe,a,b=pcall(config.hexCenter,q,r)
+            local x,z=terrCoords(a,b)
+            if safe and type(x)=="number" and type(z)=="number" then
+                local correct,aq,ar=pcall(config.hexAt,x,z)
+                local hq,hr=terrHexPair(aq,ar)
+                if correct and hq==q and hr==r then
+                    local reg=folder:GetAttribute(key.."_reg")
+                    hexList[#hexList+1]={
+                        id=key,q=q,r=r,x=x,z=z,
+                        region=reg and tostring(folder:GetAttribute("Reg"..tostring(reg).."_name") or "Regiao "..reg) or "Neutro",
+                        neutral=folder:GetAttribute(key.."_neutral")==true
+                    }
+                end
+            end
+        end
+    end
+    if #hexList < 60 then
+        terrSetPhase("MAPA INCOMPLETO", tostring(#hexList).." hexagonos validados")
+        return false
+    end
+    table.sort(hexList,function(a,b) return a.id<b.id end)
+    terrFolder,terrCfg,terrHexes=folder,config,hexList
+    territoryStatus.ready=true
+    territoryStatus.total=#hexList
+    local count=0
+    for _,h in ipairs(hexList) do if not h.neutral then count+=1 end end
+    territoryStatus.capturable=count
+    terrLog("Mapa validado: "..#hexList.." hexagonos; "..count.." nao neutros")
+    return true
+end
+local function terrOwnedCount(pack)
+    if not terrFolder then return 0 end
+    local total=0
+    for _,hex in ipairs(terrHexes) do
+        if not hex.neutral and terrSamePack(terrFolder:GetAttribute(hex.id.."_owner"),pack) then
+            total+=1
+        end
+    end
+    return total
+end
+local function terrGetGround(x,z)
+    -- Amostra diretamente Terrain, mas nao precisa alterar a altura original do mapa.
+    local result=workspace:Raycast(Vector3.new(x,1050,z),Vector3.new(0,-1700,0),terrGroundCast)
+    if not result or result.Material==Enum.Material.Water or result.Normal.Y<0.63 then return nil end
+    return Vector3.new(x,result.Position.Y+3.1,z)
+end
+local function terrPositions(hex,root)
+    local candidates={}
+    local radius=75 -- pontos continuam dentro dos 120 studs de captura
+    local offsets={{0,0},{radius,0},{-radius,0},{0,radius},{0,-radius},
+        {53,53},{-53,53},{53,-53},{-53,-53}}
+    for _,o in ipairs(offsets) do
+        local x,z=hex.x+o[1],hex.z+o[2]
+        local ok,a,b=pcall(terrCfg.hexAt,x,z)
+        local q,r=terrHexPair(a,b)
+        if ok and q==hex.q and r==hex.r then
+            local pos=terrGetGround(x,z)
+            if pos then
+                candidates[#candidates+1]={pos=pos,score=horizontal(root.Position,pos).Magnitude,
+                    delta=math.abs(root.Position.Y-pos.Y)}
+            end
+        end
+    end
+    table.sort(candidates,function(a,b)
+        -- Preferir rota curta sem saltos de altura, que a navegacao avaliara.
+        return a.score+math.min(a.delta,100)*1.25 < b.score+math.min(b.delta,100)*1.25
+    end)
+    return candidates
+end
+local function terrInterrupt(epoch,char,hum)
+    if not active or not CONFIG.AutoTerritory or controlsEpoch~=epoch
+        or player.Character~=char or not hum.Parent or hum.Health<=0 then return "CANCELADO" end
+    if hum.MaxHealth>0 and (hum.Health/hum.MaxHealth*100)<CONFIG.TerritoryVisitHealthMin then
+        return "VIDA BAIXA"
+    end
+    local h,t=getHunger(),getThirst()
+    if CONFIG._drinkActive() and t and t<=CONFIG.DrinkStart then return "PRECISA BEBER" end
+    if CONFIG.AutoGrass and h and h<=CONFIG.GrassStart then return "PRECISA PASTAR" end
+    if CONFIG._foodActive() and h and h<=CONFIG.HungerStart then return "PRECISA COMER" end
+    if h and h<=35 and not CONFIG._foodActive() and not CONFIG.AutoGrass then
+        return "FOME CRITICA SEM AUTO DIETA"
+    end
+    if t and t<=25 and not CONFIG._drinkActive() then return "SEDE CRITICA SEM AUTO DRINK" end
+    -- A rotina principal verifica tambem guarda de descanso/morte a cada retorno.
+    return nil
+end
+local function terrSelect(root,pack)
+    local best,bestDist=nil,math.huge
+    local now=os.clock()
+    local pending=0
+    for _,hex in ipairs(terrHexes) do
+        if not hex.neutral and not terrSamePack(terrFolder:GetAttribute(hex.id.."_owner"),pack) then
+            pending+=1
+            if (terrCooldowns[hex.id] or 0)<=now then
+                local dist=horizontal(root.Position,Vector3.new(hex.x,root.Position.Y,hex.z)).Magnitude
+                if dist<bestDist then best,bestDist=hex,dist end
+            end
+        end
+    end
+    return best,pending
+end
+local function terrMoveTo(hex,point,epoch,char,hum,root)
+    terrSetPhase("INDO AO HEX",hex.id.." | "..hex.region)
+    local getDistance=startMovement(hum,root,function() return point end,
+        function() return CONFIG.TerritoryArrivalRadius end,
+        function(dist) return dist>70 and 42 or 23 end,true)
+    local started=os.clock()
+    local lastProgress=started
+    local closest=math.huge
+    while active and CONFIG.AutoTerritory and controlsEpoch==epoch
+        and player.Character==char and root.Parent
+        and os.clock()-started < CONFIG.TerritoryTravelTimeout do
+        task.wait(0.4)
+        if terrSamePack(terrFolder:GetAttribute(hex.id.."_owner"),terrPack()) then
+            stopMovement()
+            return true,"DOMINADO NO CAMINHO"
+        end
+        local why=terrInterrupt(epoch,char,hum)
+        if why then stopMovement();return false,why end
+        local dist,reached,failed=getDistance()
+        if reached or dist<=CONFIG.TerritoryArrivalRadius then
+            stopMovement()
+            return true,"CHEGOU"
+        end
+        if type(dist)=="number" and dist<closest-2 then
+            closest=dist;lastProgress=os.clock()
+        end
+        if failed or (os.clock()-lastProgress > 24 and os.clock()-started>24) then
+            stopMovement()
+            return false,"SEM PROGRESSO NA ROTA"
+        end
+    end
+    stopMovement()
+    return false,"TIMEOUT DE ROTA"
+end
+territoryStep=function()
+    territoryStatus.enabled=CONFIG.AutoTerritory
+    if not CONFIG.AutoTerritory then return end
+    if not terrLoad() then task.wait(3);return end
+    local pack=terrPack()
+    territoryStatus.pack=pack
+    if not pack then
+        territoryStatus.current=nil
+        territoryStatus.progress=0
+        terrSetPhase("CRIAR GRUPO", "Crie ou entre em um pack antes de ativar")
+        task.wait(2)
+        return
+    end
+    if terrLastPack~=pack then
+        terrLastPack=pack
+        table.clear(terrCooldowns)
+    end
+    territoryStatus.owned=terrOwnedCount(pack)
+    local char,hum,root=actor()
+    if not char or hum.Health<=0 then terrSetPhase("SEM ANIMAL");task.wait(1);return end
+    local epoch=controlsEpoch
+    local why=terrInterrupt(epoch,char,hum)
+    if why then terrSetPhase("PAUSA DE SEGURANCA",why);task.wait(2);return end
+    local hex,pending=terrSelect(root,pack)
+    if not hex then
+        territoryStatus.current=nil
+        territoryStatus.progress=0
+        if pending==0 then
+            terrSetPhase("SEM PENDENTES", "Todos os hexagonos capturaveis desta sessao pertencem ao pack")
+        else
+            terrSetPhase("AGUARDANDO ROTAS", "Areas pendentes em cooldown: "..pending)
+        end
+        task.wait(4)
+        return
+    end
+    territoryStatus.current=hex.id
+    territoryStatus.region=hex.region
+    territoryStatus.progress=tonumber(terrFolder:GetAttribute(hex.id.."_prog")) or 0
+    local spots=terrPositions(hex,root)
+    if #spots==0 then
+        territoryStatus.failures+=1
+        terrCooldowns[hex.id]=os.clock()+CONFIG.TerritoryRetrySeconds
+        terrSetPhase("SEM SOLO SEGURO",hex.id.." | tentando outro depois")
+        task.wait(0.5)
+        return
+    end
+    local entered=false
+    for i=1,math.min(#spots,CONFIG.TerritoryMaxCandidatePoints) do
+        if terrInterrupt(epoch,char,hum) then return end
+        local reached,reason=terrMoveTo(hex,spots[i].pos,epoch,char,hum,root)
+        if terrSamePack(terrFolder:GetAttribute(hex.id.."_owner"),pack) then
+            entered=true
+            break
+        end
+        if reached then
+            entered=true
+            break
+        end
+        terrLog(hex.id.." | ponto "..i.." falhou: "..reason)
+        if reason=="CANCELADO" or reason=="VIDA BAIXA" or reason=="PRECISA BEBER"
+            or reason=="PRECISA COMER" or reason=="PRECISA PASTAR" then return end
+        if i>=2 then break end -- nao gastar minutos tentando todos os pontos numa area bloqueada
+    end
+    if not entered then
+        territoryStatus.failures+=1
+        terrCooldowns[hex.id]=os.clock()+CONFIG.TerritoryRetrySeconds
+        terrSetPhase("ROTA BLOQUEADA",hex.id)
+        return
+    end
+    terrSetPhase("CAPTURANDO",hex.id.." | "..hex.region)
+    local claimStart=os.clock()
+    local lastChange=claimStart
+    local lastProgress=tonumber(terrFolder:GetAttribute(hex.id.."_prog")) or 0
+    local signalSeen=lastProgress>0
+    while active and CONFIG.AutoTerritory and controlsEpoch==epoch
+        and player.Character==char and root.Parent and os.clock()-claimStart<CONFIG.TerritoryTimeout do
+        task.wait(.65)
+        if terrSamePack(terrFolder:GetAttribute(hex.id.."_owner"),pack) then
+            territoryStatus.successes+=1
+            territoryStatus.owned=terrOwnedCount(pack)
+            territoryStatus.progress=1
+            territoryStatus.lastResult="DOMINADO: "..hex.id
+            terrLog("CAPTURA CONFIRMADA "..hex.id.." | "..territoryStatus.owned.."/"..territoryStatus.capturable)
+            terrSetPhase("CONQUISTADO",hex.id)
+            task.wait(1.5)
+            return
+        end
+        local interrupt=terrInterrupt(epoch,char,hum)
+        if interrupt then terrSetPhase("PAUSADO",interrupt);return end
+        local progress=tonumber(terrFolder:GetAttribute(hex.id.."_prog")) or 0
+        territoryStatus.progress=math.clamp(progress,0,1)
+        if math.abs(progress-lastProgress)>0.002 then
+            signalSeen=true
+            lastChange=os.clock()
+            lastProgress=progress
+        end
+        local distance=horizontal(root.Position,Vector3.new(hex.x,root.Position.Y,hex.z)).Magnitude
+        if distance>CONFIG.TerritoryClaimRadius-8 then
+            terrSetPhase("SAIU DO HEX",hex.id.." | distancia "..math.floor(distance))
+            break
+        end
+        if os.clock()-lastChange > CONFIG.TerritoryProgressTimeout then
+            if not signalSeen then
+                terrSetPhase("SEM CAPTURA",hex.id.." | pack ativo? area disputada?")
+            else
+                terrSetPhase("PROGRESSO PARADO",hex.id.." | prog "..math.floor(progress*100).."%")
+            end
+            break
+        end
+    end
+    if not CONFIG.AutoTerritory or controlsEpoch~=epoch then return end
+    territoryStatus.failures+=1
+    terrCooldowns[hex.id]=os.clock()+CONFIG.TerritoryRetrySeconds
+    territoryStatus.lastResult="PENDENTE: "..hex.id
+    terrLog(hex.id.." ainda nao dominado; tentar outra regiao")
+end
+
+_G.TGFeralV8934.getTerritoryStatus=function()
+    local pack=terrPack()
+    if terrFolder and pack then territoryStatus.owned=terrOwnedCount(pack) end
+    local report={}
+    for k,v in pairs(territoryStatus) do report[k]=v end
+    report.enabled=CONFIG.AutoTerritory
+    report.pack=pack
+    return report
+end
+_G.TGFeralV8934.getTerritoryHexes=function()
+    if not terrLoad() then return {} end
+    local pack=terrPack()
+    local list={}
+    for _,hex in ipairs(terrHexes) do
+        local owner=terrFolder:GetAttribute(hex.id.."_owner")
+        list[#list+1]={id=hex.id,region=hex.region,x=hex.x,z=hex.z,
+            neutral=hex.neutral,owner=owner,owned=terrSamePack(owner,pack),
+            progress=terrFolder:GetAttribute(hex.id.."_prog")}
+    end
+    return list
+end
+_G.TGFeralV8934.setAutoTerritory=function(value)
+    local nextValue=value==true
+    if CONFIG.AutoTerritory~=nextValue then
+        CONFIG.AutoTerritory=nextValue
+        controlsEpoch+=1
+        pcall(stopMovement)
+        terrSetPhase(nextValue and "EM ESPERA" or "DESATIVADO")
+        terrLog("AUTO TERRITORY "..(nextValue and "ON" or "OFF"))
+    end
+    return CONFIG.AutoTerritory
+end
+
+    end
+    installTerritoryEngine()
+end
+
 -- === AUTO QUEST DE DISTANCIA V8.7 ===
 -- So se movimenta enquanto ha quest de viagem pendente.
 -- Faz um percurso em quatro direcoes e consulta o progresso da GUI.
@@ -4926,7 +5283,8 @@ print("AUTO QUEST REST: se R nao for reconhecido, faz pausa e segue outras quest
 print("REST STATUS: print(_G.TGFeralV8934.getRestStatus())")
 print("AUTO RESPAWN: somente botao RESPAWN gratuito na morte confirmada")
 print("RESPAWN STATUS: print(_G.TGFeralV8934.getRespawnStatus())")
-print("STATUS: ATIVO | Painel Drink / Food / Grass / Quest / Get Amber | Speed", CONFIG.Speed)
+print("STATUS: ATIVO | Painel compacto Drink / Food / Grass / Quest / Territory / Amber | Speed", CONFIG.Speed)
+print("AUTO TERRITORY: OFF inicial | 71 IDs (69 nao neutros) | criacao de grupo manual | atributos do servidor")
 print("GET AMBER: " .. (CONFIG.GetAmber and "ON" or "OFF") ..
     " | independente de Auto Quest; exige HP alto, Food e Drink ON")
 print("AUTO GRASS: AUTO POR DIETA | herbivoros 🌿 | scanner local",CONFIG.GrassSearchRadius,
@@ -5117,6 +5475,7 @@ task.spawn(function()
                 setActivity("AutoDrink","PAUSADO: MORTE")
                 setActivity("AutoQuest","PAUSADO: MORTE")
                 setActivity("GetAmber",CONFIG.GetAmber and "PAUSADO: MORTE" or "DESATIVADO")
+                setActivity("AutoTerritory",CONFIG.AutoTerritory and "PAUSADO: MORTE" or "DESATIVADO")
                 local v=respawnState.lastDeathVitals or {}
                 print("THE GOAT: MORTE DETECTADA | HP anterior",v.hp,
                     "| Hunger",v.hunger,"| Thirst",v.thirst,"| pos",v.pos)
@@ -5160,6 +5519,7 @@ task.spawn(function()
                 setActivity("AutoDrink",CONFIG.AutoDrink and "EM ESPERA" or "DESATIVADO")
                 setActivity("AutoQuest",CONFIG.AutoQuest and "EM ESPERA" or "DESATIVADO")
                 setActivity("GetAmber",CONFIG.GetAmber and "EM ESPERA" or "DESATIVADO")
+                setActivity("AutoTerritory",CONFIG.AutoTerritory and "EM ESPERA" or "DESATIVADO")
                 print("THE GOAT: RESPAWN CONFIRMADO | automacoes religadas conforme os botoes")
             else
                 respawnState.lastStatus="AGUARDANDO NOVO PERSONAGEM"
@@ -5215,10 +5575,10 @@ task.spawn(function()
             else
                 local herbivore = syncAutoDiet()
                 local grassMode = CONFIG.AutoGrass and herbivore == true
-                local grassQuest = grassMode and CONFIG.AutoQuest and questPending("PASTO") or nil
+                local grassQuest = grassMode and CONFIG.AutoQuest and not CONFIG.AutoTerritory and questPending("PASTO") or nil
                 local grassTrigger = grassQuest and math.max(CONFIG.GrassStart, CONFIG.QuestEatStart) or CONFIG.GrassStart
-                local foodQuest = CONFIG.AutoFood and not grassMode and not CONFIG.GetAmber and questPending("COMIDA") or nil
-                local drinkQuest = CONFIG.AutoDrink and not CONFIG.GetAmber and questPending("AGUA", questGenericDrink) or nil
+                local foodQuest = CONFIG.AutoFood and not grassMode and not CONFIG.GetAmber and not CONFIG.AutoTerritory and questPending("COMIDA") or nil
+                local drinkQuest = CONFIG.AutoDrink and not CONFIG.GetAmber and not CONFIG.AutoTerritory and questPending("AGUA", questGenericDrink) or nil
                 local hungerTrigger = foodQuest and math.max(CONFIG.HungerStart, CONFIG.QuestEatStart) or CONFIG.HungerStart
                 local thirstTrigger = drinkQuest and math.max(CONFIG.DrinkStart, CONFIG.QuestDrinkStart) or CONFIG.DrinkStart
                 if CONFIG.GetAmber then
@@ -5258,7 +5618,7 @@ task.spawn(function()
                 -- Sede critica: primeiro a fonte mais proxima, sem caminhada longa.
                 -- Sede moderada: uma quest "Drink at" conhecida tem prioridade,
                 -- para contar a missao alem de hidratar o animal.
-                local namedQuest = CONFIG.AutoDrink and not CONFIG.GetAmber and questPending("AGUA", function(q)
+                local namedQuest = CONFIG.AutoDrink and not CONFIG.GetAmber and not CONFIG.AutoTerritory and questPending("AGUA", function(q)
                     return namedDrinkWaypoint(q) ~= nil
                 end) or nil
                 local namedReady = namedQuestReady(namedQuest, t)
@@ -5338,6 +5698,11 @@ task.spawn(function()
                             task.wait(4)
                         end
                     end
+                elseif CONFIG.AutoTerritory then
+                    -- Exclusivo na fila de navegacao; sede/fome/grass continuam prioritarios.
+                    if CONFIG.GetAmber then setActivity("GetAmber","PAUSADO: TERRITORIOS") end
+                    if CONFIG.AutoQuest then setActivity("AutoQuest","PAUSADO: TERRITORIOS") end
+                    if territoryStep then territoryStep() end
                 elseif CONFIG.GetAmber and not grassMode then
                     -- Get Amber e INDEPENDENTE do Auto Quest:
                     -- nao aguarda QUICK/DAILY e pode farmar com quests pendentes.
@@ -5443,7 +5808,7 @@ task.spawn(function()
         if ok then
             runtimeStatus.consecutiveErrors = 0
             if runtimeStatus.recovering then
-                for _, key in ipairs({"AutoFood", "AutoGrass", "AutoDrink", "AutoQuest", "GetAmber"}) do
+                for _, key in ipairs({"AutoFood", "AutoGrass", "AutoDrink", "AutoQuest", "GetAmber", "AutoTerritory"}) do
                     if activity[key] == "RECUPERANDO ERRO" then
                         setActivity(key, CONFIG[key] and "EM ESPERA" or "DESATIVADO")
                     end
@@ -5460,7 +5825,7 @@ task.spawn(function()
             controlsEpoch += 1
             pcall(stopMovement)
             feeding, drinking = false, false
-            for _, key in ipairs({"AutoFood", "AutoGrass", "AutoDrink", "AutoQuest", "GetAmber"}) do
+            for _, key in ipairs({"AutoFood", "AutoGrass", "AutoDrink", "AutoQuest", "GetAmber", "AutoTerritory"}) do
                 setActivity(key, "RECUPERANDO ERRO")
             end
             warn("THE GOAT: falha na rotina | tentativa",
@@ -5476,7 +5841,7 @@ task.spawn(function()
     end
     runtimeStatus.recovering = false
     stop()
-    print("THE GOAT FERAL V8.9.34 SESSAO " .. sessionID .. " DESLIGADA")
+    print("THE GOAT FERAL V8.9.35 SESSAO " .. sessionID .. " DESLIGADA")
 end)
 
 -- Para desligar no console:
@@ -5508,7 +5873,7 @@ end)
 
 end
 
-print("THE GOAT: iniciando V8.9.34 | GET AMBER INDEPENDENTE | velocidade V | Aura painel")
+print("THE GOAT: iniciando V8.9.35 | AUTO TERRITORY | painel compacto | velocidade V | Aura")
 local ok, falha = xpcall(iniciarTheGoat, function(err)
     if debug and type(debug.traceback) == "function" then
         return debug.traceback(tostring(err), 2)
@@ -5597,7 +5962,7 @@ do
         end
         _G.TGGoatSpeed=api
 
-        -- UI integrada ao corpo do painel; alocacao independente do arquivo principal.
+        -- UI da velocidade agora ocupa apenas a aba AJUSTES do painel compacto.
         local playerGui=player:FindFirstChild("PlayerGui")
         local gui=playerGui and playerGui:FindFirstChild("THE_GOAT_FERAL_CONTROL_V895")
         if not gui and type(gethui)=="function" then
@@ -5606,104 +5971,87 @@ do
                 gui=hui:FindFirstChild("THE_GOAT_FERAL_CONTROL_V895")
             end
         end
-        if gui then
-            local panel=gui:FindFirstChild("AlienPremium")
-            local body=panel and panel:FindFirstChild("Body")
-            if body then
-                local lime=Color3.fromRGB(57,255,20)
-                local white=Color3.fromRGB(242,255,244)
-                local pale=Color3.fromRGB(185,218,190)
-                local muted=Color3.fromRGB(113,145,121)
-                local greenBg=Color3.fromRGB(14,27,19)
-                local function el(kind,parent,props)
-                    local o=Instance.new(kind)
-                    for k,v in pairs(props) do o[k]=v end
-                    o.Parent=parent
-                    return o
-                end
-                local function label(txt,x,y,w,h,size,color)
-                    return el("TextLabel",body,{
-                        BackgroundTransparency=1,Text=txt,
-                        Font=Enum.Font.GothamBold,TextSize=size or 11,
-                        TextColor3=color or white,TextXAlignment=Enum.TextXAlignment.Left,
-                        Position=UDim2.fromOffset(x,y),Size=UDim2.fromOffset(w,h)
-                    })
-                end
-                local row=el("Frame",body,{
-                    Name="ManualSpeedRow",Position=UDim2.fromOffset(16,470),
-                    Size=UDim2.fromOffset(320,65),BackgroundColor3=greenBg,
-                    BorderSizePixel=0
-                })
-                el("UICorner",row,{CornerRadius=UDim.new(0,12)})
-                el("UIStroke",row,{Color=Color3.fromRGB(38,111,51),Thickness=1,Transparency=0.46})
-                local bar=el("Frame",row,{
-                    Position=UDim2.fromOffset(0,7),Size=UDim2.fromOffset(3,51),
-                    BackgroundColor3=lime,BorderSizePixel=0
-                })
-                el("UICorner",bar,{CornerRadius=UDim.new(0,2)})
-                el("TextLabel",row,{
-                    BackgroundTransparency=1,Text="VELOCIDADE MANUAL",Font=Enum.Font.GothamBold,
-                    TextSize=12,TextColor3=white,TextXAlignment=Enum.TextXAlignment.Left,
-                    Position=UDim2.fromOffset(16,7),Size=UDim2.fromOffset(220,18)
-                })
-                el("TextLabel",row,{
-                    BackgroundTransparency=1,Text="V alterna | WASD sem Shift",Font=Enum.Font.Gotham,
-                    TextSize=10,TextColor3=pale,TextXAlignment=Enum.TextXAlignment.Left,
-                    Position=UDim2.fromOffset(16,25),Size=UDim2.fromOffset(225,16)
-                })
-                local statusText=el("TextLabel",row,{
-                    BackgroundTransparency=1,Text="DESATIVADO",Font=Enum.Font.GothamBold,
-                    TextSize=9,TextColor3=muted,TextXAlignment=Enum.TextXAlignment.Left,
-                    Position=UDim2.fromOffset(16,44),Size=UDim2.fromOffset(205,15)
-                })
-                local speedToggle=el("TextButton",row,{
-                    Name="ManualSpeedToggle",Text="OFF",Font=Enum.Font.GothamBold,
-                    TextSize=12,TextColor3=white,BackgroundColor3=Color3.fromRGB(45,61,49),
-                    Position=UDim2.fromOffset(244,18),Size=UDim2.fromOffset(68,30),
-                    BorderSizePixel=0,AutoButtonColor=false
-                })
-                el("UICorner",speedToggle,{CornerRadius=UDim.new(0,15)})
-                label("AJUSTAR VELOCIDADE",17,543,126,26,10,pale)
-                local speedMinus=el("TextButton",body,{
-                    Name="SpeedMinus",Text="-",Font=Enum.Font.GothamBold,TextSize=18,
-                    TextColor3=white,BackgroundColor3=Color3.fromRGB(16,69,30),
-                    Position=UDim2.fromOffset(143,541),Size=UDim2.fromOffset(31,28),BorderSizePixel=0
-                })
-                local speedValue=el("TextBox",body,{
-                    Name="SpeedValue",Text="46",ClearTextOnFocus=false,
-                    Font=Enum.Font.GothamBold,TextSize=12,TextColor3=white,
-                    BackgroundColor3=Color3.fromRGB(16,69,30),BorderSizePixel=0,
-                    TextXAlignment=Enum.TextXAlignment.Center,
-                    Position=UDim2.fromOffset(179,541),Size=UDim2.fromOffset(78,28),
-                    PlaceholderText="10 - 100"
-                })
-                local speedPlus=el("TextButton",body,{
-                    Name="SpeedPlus",Text="+",Font=Enum.Font.GothamBold,TextSize=18,
-                    TextColor3=white,BackgroundColor3=Color3.fromRGB(16,69,30),
-                    Position=UDim2.fromOffset(263,541),Size=UDim2.fromOffset(31,28),BorderSizePixel=0
-                })
-                for _,obj in ipairs({speedMinus,speedValue,speedPlus}) do
-                    el("UICorner",obj,{CornerRadius=UDim.new(0,7)})
-                end
-                uiRedraw=function()
-                    if not state.active or not row.Parent then return end
-                    speedToggle.Text=state.enabled and "ON" or "OFF"
-                    speedToggle.TextColor3=state.enabled and Color3.fromRGB(0,0,0) or white
-                    speedToggle.BackgroundColor3=state.enabled and lime or Color3.fromRGB(45,61,49)
-                    statusText.Text=state.enabled and (state.last=="MOVIMENTO APLICADO" and "CORRENDO" or state.last) or "DESATIVADO"
-                    statusText.TextColor3=state.enabled and lime or muted
-                    if not speedValue:IsFocused() then speedValue.Text=tostring(state.speed) end
-                end
-                connect(speedToggle.MouseButton1Click,function() api.setEnabled(not state.enabled) end)
-                connect(speedMinus.MouseButton1Click,function() api.setSpeed(state.speed-5) end)
-                connect(speedPlus.MouseButton1Click,function() api.setSpeed(state.speed+5) end)
-                connect(speedValue.FocusLost,function() api.setSpeed(speedValue.Text) end)
-                uiRedraw()
-            else
-                warn("TG VELOCIDADE: painel encontrado mas Body ausente")
+        local panel=gui and gui:FindFirstChild("AlienPremium")
+        local body=panel and panel:FindFirstChild("Body")
+        local settings=body and body:FindFirstChild("SettingsTab")
+        local speedContainer=settings and settings:FindFirstChild("SpeedSection")
+        if speedContainer then
+            for _,old in ipairs(speedContainer:GetChildren()) do old:Destroy() end
+            local lime=Color3.fromRGB(62,244,99)
+            local white=Color3.fromRGB(238,249,239)
+            local pale=Color3.fromRGB(167,198,173)
+            local muted=Color3.fromRGB(112,147,123)
+            local dark=Color3.fromRGB(16,29,23)
+            local off=Color3.fromRGB(51,68,59)
+            local function el(kind,parentObj,props)
+                local o=Instance.new(kind)
+                for k,v in pairs(props) do o[k]=v end
+                o.Parent=parentObj
+                return o
             end
+            local function corner(o,r)
+                el("UICorner",o,{CornerRadius=UDim.new(0,r)})
+                return o
+            end
+            local function lbl(parentObj,txt,x,y,w,h,sz,color,strong)
+                return el("TextLabel",parentObj,{
+                    BackgroundTransparency=1,Text=txt,
+                    Font=strong and Enum.Font.GothamBold or Enum.Font.Gotham,
+                    TextSize=sz or 10,TextColor3=color or white,
+                    TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Center,
+                    Position=UDim2.fromOffset(x,y),Size=UDim2.fromOffset(w,h)
+                })
+            end
+            local row=corner(el("Frame",speedContainer,{
+                Name="ManualSpeedRow",Position=UDim2.fromOffset(0,0),Size=UDim2.fromOffset(304,49),
+                BackgroundColor3=dark,BorderSizePixel=0
+            }),9)
+            lbl(row,"VELOCIDADE MANUAL",12,5,215,17,11,white,true)
+            local statusText=lbl(row,"OFF • tecla V",12,24,216,17,9,pale,false)
+            local speedToggle=corner(el("TextButton",row,{
+                Name="ManualSpeedToggle",Position=UDim2.fromOffset(242,10),Size=UDim2.fromOffset(51,28),
+                Text="OFF",Font=Enum.Font.GothamBold,TextSize=10,TextColor3=white,
+                BackgroundColor3=off,BorderSizePixel=0,AutoButtonColor=false
+            }),13)
+            local adjust=corner(el("Frame",speedContainer,{
+                Name="SpeedAdjustRow",Position=UDim2.fromOffset(0,56),Size=UDim2.fromOffset(304,48),
+                BackgroundColor3=dark,BorderSizePixel=0
+            }),9)
+            lbl(adjust,"VELOCIDADE",12,9,108,30,10,pale,true)
+            local minus=corner(el("TextButton",adjust,{
+                Text="−",Position=UDim2.fromOffset(130,9),Size=UDim2.fromOffset(32,29),
+                Font=Enum.Font.GothamBold,TextSize=18,TextColor3=white,
+                BackgroundColor3=off,BorderSizePixel=0
+            }),7)
+            local value=corner(el("TextBox",adjust,{
+                Name="SpeedValue",Text="46",ClearTextOnFocus=false,
+                Position=UDim2.fromOffset(168,9),Size=UDim2.fromOffset(77,29),
+                Font=Enum.Font.GothamBold,TextSize=11,TextColor3=white,
+                TextXAlignment=Enum.TextXAlignment.Center,BackgroundColor3=off,
+                BorderSizePixel=0,PlaceholderText="10 - 100"
+            }),7)
+            local plus=corner(el("TextButton",adjust,{
+                Text="+",Position=UDim2.fromOffset(251,9),Size=UDim2.fromOffset(42,29),
+                Font=Enum.Font.GothamBold,TextSize=16,TextColor3=white,
+                BackgroundColor3=off,BorderSizePixel=0
+            }),7)
+            lbl(speedContainer,"V alterna velocidade; pausa com navegacao automatica.",6,112,296,20,9,muted,false)
+            uiRedraw=function()
+                if not state.active or not speedToggle.Parent then return end
+                speedToggle.Text=state.enabled and "ON" or "OFF"
+                speedToggle.TextColor3=state.enabled and Color3.fromRGB(9,16,10) or white
+                speedToggle.BackgroundColor3=state.enabled and lime or off
+                statusText.Text=state.enabled and state.last or "OFF • tecla V"
+                statusText.TextColor3=state.enabled and lime or pale
+                if not value:IsFocused() then value.Text=tostring(state.speed) end
+            end
+            connect(speedToggle.MouseButton1Click,function() api.setEnabled(not state.enabled) end)
+            connect(minus.MouseButton1Click,function() api.setSpeed(state.speed-5) end)
+            connect(plus.MouseButton1Click,function() api.setSpeed(state.speed+5) end)
+            connect(value.FocusLost,function() api.setSpeed(value.Text) end)
+            uiRedraw()
         else
-            warn("TG VELOCIDADE: painel nao encontrado; tecla V e API continuam operacionais")
+            warn("TG VELOCIDADE: aba AJUSTES indisponivel; tecla V continua funcional")
         end
 
         connect(UIS.InputBegan,function(input,processed)
