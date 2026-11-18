@@ -1,7 +1,6 @@
--- V8.9.38 | API COMPARTILHADA POTASSIUM + DIAGNOSTICO DE RESPAWN | BASE V8.9.37
--- V8.9.38 | RECONHECIMENTO DE RESPAWN (IMAGEBUTTON/TEXTO) + DESCIDA SECA + TERRITORY
--- V8.9.38 | CORRECAO: SAIDA POR SOLO SECO QUANDO AUTO DRINK FICA SEM DESCIDA
--- THE GOAT FERAL V8.9.38 | AUTO TERRITORY + PAINEL COMPACTO
+-- V8.9.37 | RECONHECIMENTO DE RESPAWN (IMAGEBUTTON/TEXTO) + DESCIDA SECA + TERRITORY
+-- V8.9.37 | CORRECAO: SAIDA POR SOLO SECO QUANDO AUTO DRINK FICA SEM DESCIDA
+-- THE GOAT FERAL V8.9.37 | AUTO TERRITORY + PAINEL COMPACTO
 -- Base integral: V8.9.34 | mantidas rotinas originais, Speed V, Aura V2, Amber, dietas e navegacao
 -- Get Amber tem suporte interno a fome/sede sem exigir Auto Food/Drink ON no painel.
 -- Tecla V continua exclusiva da velocidade; Aura continua exclusiva do painel.
@@ -21,33 +20,6 @@ local RunService = game:GetService("RunService")
 local PathfindingService = game:GetService("PathfindingService")
 local Terrain = workspace.Terrain
 local player = Players.LocalPlayer
--- V8.9.38: o executor pode usar um _G diferente em cada execucao.
--- Se o mesmo API foi exposto por getgenv/shared, encerra primeiro a sessao anterior.
-do
-local function stopPreviousGoat()
-    local previous = {}
-    local function add(api)
-        if type(api)=="table" and type(api.stop)=="function" then
-            for _,known in ipairs(previous) do if known==api then return end end
-            table.insert(previous,api)
-        end
-    end
-    add(_G.TGFeralV8934)
-    if type(getgenv)=="function" then
-        local ok,env=pcall(getgenv)
-        if ok and type(env)=="table" then
-            add(env.TGFeralV8934)
-            add(env.TGFeralV8938)
-        end
-    end
-    if type(shared)=="table" then
-        add(shared.TGFeralV8934)
-        add(shared.TGFeralV8938)
-    end
-    for _,api in ipairs(previous) do pcall(api.stop) end
-end
-stopPreviousGoat()
-end
 -- Desativa a janela Aura separada antes de inicializar a versao unificada.
 local oldAuraEnv=(type(getgenv)=="function" and getgenv()) or _G
 if type(oldAuraEnv.THE_GOAT_FERAL_AURA_V2_STOP)=="function" then
@@ -1384,31 +1356,7 @@ _G.TGFeralV8934 = {
     end
 }
 
--- V8.9.38: publica a MESMA tabela usada internamente por todas as rotinas.
--- _G pode ser diferente entre execucoes no Potassium; getgenv/shared sao
--- registries alternativos. A API permanece com o nome antigo por compatibilidade.
-do
-    local api=_G.TGFeralV8934
-    api.version="V8.9.38"
-    local where={"_G"}
-    if type(getgenv)=="function" then
-        local ok,env=pcall(getgenv)
-        if ok and type(env)=="table" then
-            env.TGFeralV8934=api
-            env.TGFeralV8938=api
-            table.insert(where,"getgenv")
-        end
-    end
-    if type(shared)=="table" then
-        shared.TGFeralV8934=api
-        shared.TGFeralV8938=api
-        table.insert(where,"shared")
-    end
-    print("THE GOAT V8.9.38: API PUBLICADA em",table.concat(where, ", "),
-        "| sessao",sessionID)
-end
-
--- === PAINEL COMPACTO THE GOAT | V8.9.38 ===
+-- === PAINEL COMPACTO THE GOAT | V8.9.37 ===
 -- Mesmas funcoes, layout em 3 abas; janela menor e arrastavel; sem fechar.
 do
     local Input=game:GetService("UserInputService")
@@ -1496,7 +1444,7 @@ do
                 Position=ofs(4,4),Size=ofs(31,31),ScaleType=Enum.ScaleType.Fit})
         end
         label(header,"THE GOAT",62,10,188,26,17,c.white,true)
-        label(header,"FERAL   /   V8.9.38",63,35,196,15,10,c.lime,true)
+        label(header,"FERAL   /   V8.9.37",63,35,196,15,10,c.lime,true)
         local mini=round(make("TextButton",header,{
             Name="Minimize",Position=ofs(284,16),Size=ofs(30,29),Text="−",
             Font=Enum.Font.GothamBold,TextSize=19,TextColor3=c.white,
@@ -1713,7 +1661,7 @@ do
                 task.wait(1.25)
             end
         end)
-        print("THE GOAT PAINEL COMPACTO V8.9.38: 328x456 | abas Rotinas/Combate/Ajustes | mini + drag")
+        print("THE GOAT PAINEL COMPACTO V8.9.37: 328x456 | abas Rotinas/Combate/Ajustes | mini + drag")
     else
         warn("PAINEL THE GOAT: PlayerGui nao encontrado")
     end
@@ -3876,7 +3824,7 @@ local function findWater()
 end
 
 -- Evita repetir o mesmo scan enquanto o animal continua no mesmo barranco.
--- === V8.9.38: BUSCA DE SAIDA EM SOLO SECO ===
+-- === V8.9.37: BUSCA DE SAIDA EM SOLO SECO ===
 -- Quando A* nao encontra ligacao ate a agua sob um penhasco, mudar o ponto
 -- de OBSERVACAO por terra, sem teleporte, queda, pulo ou alteracao de colisao.
 -- O scan respeita a altura e a inclinacao a cada 4 studs do deslocamento.
@@ -4921,7 +4869,7 @@ end
 
 do
     local function installTerritoryEngine()
--- === AUTO TERRITORY V8.9.38 | CAPTURA LEGITIMA POR PRESENCA ===
+-- === AUTO TERRITORY V8.9.37 | CAPTURA LEGITIMA POR PRESENCA ===
 -- Confirmado pelo scanner V3: TerritoryConfig.hexCenter(q,r), hexAt(x,z),
 -- FeralTerritory.Hq_r_prog e Hq_r_owner; Player.FeralPack e o ID do grupo.
 -- Nenhum RemoteEvent e enviado. Nao fabrica estado de conquista do servidor.
@@ -5491,7 +5439,7 @@ print("AUTO QUEST: Rest for 90s (R) e Claim a territory habilitados")
 print("AUTO QUEST REST V8.9.34: tenta R via VIM, depois executor; exige progresso real na GUI")
 print("AUTO QUEST REST: se R nao for reconhecido, faz pausa e segue outras quests; nao entra em bloqueio falso")
 print("REST STATUS: print(_G.TGFeralV8934.getRestStatus())")
-print("AUTO RESPAWN V8.9.38: clique fisico/virtual priorizado; suporta ImageButton e rotulo externo")
+print("AUTO RESPAWN V8.9.37: clique fisico/virtual priorizado; suporta ImageButton e rotulo externo")
 print("RESPAWN STATUS: print(_G.TGFeralV8934.getRespawnStatus())")
 print("RESPAWN GUI DEBUG: print(_G.TGFeralV8934.getRespawnStatus().uiDebug)")
 print("STATUS: ATIVO | Painel compacto Drink / Food / Grass / Quest / Territory / Amber | Speed", CONFIG.Speed)
@@ -5540,7 +5488,7 @@ local function normalizeRespawnText(value)
         :gsub("^%s+", ""):gsub("%s+$", ""):upper()
 end
 
--- === V8.9.38: DETECTOR DE RESPAWN ===
+-- === V8.9.37: DETECTOR DE RESPAWN ===
 -- O texto pode estar num TextLabel dentro/sobre um ImageButton, ou o
 -- proprio botao pode usar nome Respawn e nenhum TextButton.Text.
 -- NUNCA seleciona REVIVE, CHANGE ANIMAL, BUY ou opcoes com Robux.
@@ -5569,8 +5517,7 @@ local function locateRespawnUI()
         if not isOwnPanel(obj) and respawnVisible(obj) then
             if obj:IsA("TextLabel") or obj:IsA("TextButton") then
                 local t=normalizeRespawnText(obj.Text)
-                if t:find("YOU DIED",1,true) or t:find("YOU STARVED",1,true)
-                    or t:find("YOU ARE DEAD",1,true)
+                if t:find("YOU DIED",1,true) or t:find("YOU ARE DEAD",1,true)
                     or t:find("YOU'VE DIED",1,true) or t=="DEATH" then
                     deathTitle=true
                 end
@@ -5676,7 +5623,7 @@ local function recordAlive(hum,root)
     }
 end
 
--- V8.9.38: prioriza clique real na tela. "firesignal" nao equivale
+-- V8.9.37: prioriza clique real na tela. "firesignal" nao equivale
 -- necessariamente a clicar no botao, por isso fica como fallback.
 local function requestRespawn(button,attempt)
     if not (button and button:IsA("GuiObject") and respawnVisible(button)) then
@@ -5814,11 +5761,7 @@ task.spawn(function()
                 respawnState.lastError=err
                 respawnState.lastStatus=ok and "CLIQUE ENVIADO; AGUARDANDO CONFIRMACAO" or "TENTATIVA SEM SUCESSO"
                 print("THE GOAT AUTO RESPAWN | tentativa",respawnState.attempts,
-                    "| metodo",method,"|",respawnState.lastStatus,err or "",
-                    "| alvo",respawnState.lastButton)
-                if respawnState.attempts==1 then
-                    print("THE GOAT AUTO RESPAWN | GUI:",tostring(respawnState.uiDebug))
-                end
+                    "| metodo",method,"|",respawnState.lastStatus,err or "")
             end
             setActivity("AutoRespawn",respawnState.lastStatus)
         elseif respawnState.dead then
@@ -6177,7 +6120,7 @@ task.spawn(function()
     end
     runtimeStatus.recovering = false
     stop()
-    print("THE GOAT FERAL V8.9.38 SESSAO " .. sessionID .. " DESLIGADA")
+    print("THE GOAT FERAL V8.9.37 SESSAO " .. sessionID .. " DESLIGADA")
 end)
 
 -- Para desligar no console:
@@ -6209,7 +6152,7 @@ end)
 
 end
 
-print("THE GOAT: iniciando V8.9.38 | AUTO TERRITORY | painel compacto | velocidade V | Aura")
+print("THE GOAT: iniciando V8.9.37 | AUTO TERRITORY | painel compacto | velocidade V | Aura")
 local ok, falha = xpcall(iniciarTheGoat, function(err)
     if debug and type(debug.traceback) == "function" then
         return debug.traceback(tostring(err), 2)
@@ -6217,9 +6160,7 @@ local ok, falha = xpcall(iniciarTheGoat, function(err)
     return tostring(err)
 end)
 if not ok then
-    warn("THE GOAT V8.9.38: falha na inicializacao | " .. tostring(falha))
-else
-    print("THE GOAT V8.9.38: inicializacao retornou sem erro")
+    warn("THE GOAT: falha na inicializacao | " .. tostring(falha))
 end
 
 
@@ -6238,10 +6179,6 @@ do
             pcall(_G.TGGoatSpeed.stop)
         end
         local goat = _G.TGFeralV8934
-        if type(goat)~="table" and type(getgenv)=="function" then
-            local okEnv,env=pcall(getgenv)
-            if okEnv and type(env)=="table" then goat=env.TGFeralV8934 end
-        end
         if type(goat)~="table" or type(goat.isActive)~="function" or not goat.isActive() then
             warn("TG VELOCIDADE: V8.9.34 nao inicializada; addon nao iniciou")
             return
